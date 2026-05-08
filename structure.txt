@@ -1,0 +1,271 @@
+================================================================================
+  MAPLIBRE STARTER — STRUCTURE GUIDE
+  A map of the moving parts. Whenever you want to add a feature, this file
+  tells you which file/line to touch and which MapLibre API to reach for.
+================================================================================
+
+PROJECT LAYOUT
+--------------
+  index.html                  Vite entry HTML (untouched)
+  src/main.jsx                React bootstrap (untouched)
+  src/App.jsx                 Mounts <MapView /> — that's it
+  src/App.css                 Global reset so the map can fill the viewport
+  src/index.css               Global reset (same idea, loaded by main.jsx)
+  src/components/MapView.jsx  *** THE FILE YOU WILL EDIT MOST ***
+  src/components/MapView.css  Sizes the map container (.map-container)
+  package.json                "maplibre-gl" lives in dependencies
+
+Everything map-related lives in MapView.jsx. The rest is plumbing.
+
+
+THE 11 KNOBS — what to tweak, where, and why
+============================================
+
+[1] WHERE THE MAP IS BORN
+    File:  src/components/MapView.jsx
+    Look:  the useEffect(() => { ... }, []) block
+    Code:  new maplibregl.Map({ container, style, center, zoom })
+    Notes: This runs once on mount. The empty dependency array [] is
+           intentional — we never recreate the map; we mutate it.
+
+
+[2] STYLE / BASEMAP (how the map looks)
+    File:  src/components/MapView.jsx
+    Look:  const STYLE_URL = '...'   then  style: STYLE_URL  in the Map() call
+    Swap to a different look by changing STYLE_URL. Some keyless options:
+      - https://tiles.openfreemap.org/styles/liberty      (current, OpenFreeMap Liberty)
+      - https://tiles.openfreemap.org/styles/positron     (OpenFreeMap Positron)
+      - https://tiles.openfreemap.org/styles/bright       (OpenFreeMap Bright)
+      - https://demotiles.maplibre.org/style.json         (MapLibre demo, schematic)
+    For paid providers (MapTiler, Mapbox), append your API key to the URL.
+    You can also pass a full JSON style object instead of a URL.
+
+
+[3] INITIAL VIEW (where it opens, how zoomed in)
+    File:  src/components/MapView.jsx
+    Look:  INITIAL_CENTER = [lng, lat]   and   INITIAL_ZOOM = number
+    GOTCHA: MapLibre uses [longitude, latitude] order, NOT [lat, lng].
+            Mixing this up is the #1 source of "why is my map in the ocean".
+    Zoom levels: 0 = whole world, 5 = continent, 10 = city, 15 = streets, 18+ = buildings.
+    Other useful constructor options on the same Map({...}) call:
+      bearing: 0       // rotation in degrees
+      pitch: 0         // tilt 0–60 (3D feel)
+      maxBounds: [[w,s],[e,n]]   // lock the map to a region
+      minZoom / maxZoom
+
+    GOOGLE-MAPS-STYLE "ONE WORLD ONLY" ZOOM (already wired up in this app):
+      Without a minZoom, zooming out far enough makes the world smaller than
+      the viewport and MapLibre tiles duplicate copies (2 Americas, etc.).
+      Fix: set minZoom to the zoom where one world exactly fills the container:
+          const computeMinZoom = (w) => Math.log2(w / 512)   // 512 = vector tile size
+      Pass it to the Map() constructor AND keep it correct on resize:
+          map.on('resize', () => map.setMinZoom(computeMinZoom(map.getContainer().clientWidth)))
+      This preserves wrap-on-pan (renderWorldCopies stays true) — you only
+      lose the *duplicates*, not the "pan west forever and reach Asia" effect.
+
+
+[4] CONTROLS (UI buttons on top of the map)
+    File:  src/components/MapView.jsx
+    Look:  map.addControl(new maplibregl.NavigationControl(), 'top-right')
+    Position strings: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+    Other built-in controls — add them with more map.addControl(...) lines:
+      new maplibregl.GeolocateControl({ trackUserLocation: true })
+      new maplibregl.ScaleControl({ maxWidth: 100, unit: 'metric' })
+      new maplibregl.FullscreenControl()
+      new maplibregl.AttributionControl({ compact: true })
+    Custom controls: any object implementing { onAdd(map), onRemove() }.
+
+
+[5] MARKERS (pins)
+    File:  src/components/MapView.jsx (add inside or after the useEffect)
+    Code:  new maplibregl.Marker()
+             .setLngLat([lng, lat])
+             .addTo(map)
+    Custom-element marker:  new maplibregl.Marker({ element: myDiv, color: '#f00' })
+    Drag-to-move:           new maplibregl.Marker({ draggable: true })
+                            .on('dragend', e => console.log(e.target.getLngLat()))
+    Many markers? Build them in a useEffect that depends on your data array,
+    and remove old ones (marker.remove()) when the data changes.
+
+
+[6] POPUPS (the tooltip that opens above a marker or a click)
+    Code:  const popup = new maplibregl.Popup({ offset: 25 })
+                          .setHTML('<h3>Hello</h3><p>From a popup</p>')
+           marker.setPopup(popup)        // attach to a marker (opens on click)
+        OR popup.setLngLat([lng, lat]).addTo(map)  // standalone
+
+
+[7] SOURCES & LAYERS — the real power of MapLibre
+    Use these to draw your own data: GeoJSON points, lines, polygons, heatmaps,
+    raster overlays, vector tilesets, 3D extrusions, etc.
+    CRITICAL: addSource / addLayer must run AFTER the style has loaded.
+    Pattern:
+      map.on('load', () => {
+        map.addSource('my-data', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [...] },
+        })
+        map.addLayer({
+          id: 'my-data-layer',
+          type: 'circle',          // 'fill' | 'line' | 'symbol' | 'heatmap' | 'fill-extrusion' | 'raster'
+          source: 'my-data',
+          paint: { 'circle-radius': 6, 'circle-color': '#aa3bff' },
+        })
+      })
+    To update data later:  map.getSource('my-data').setData(newGeoJSON)
+    For shipping-route LineStrings specifically (searoute output), see
+    [12] below — same machinery, plus the data-pipeline question of where
+    the GeoJSON comes from in the first place.
+
+
+[8] EVENTS (reacting to the user)
+    map.on('load',       () => { /* style is ready, safe to add layers */ })
+    map.on('click',      e => console.log(e.lngLat))   // e.lngLat = {lng, lat}
+    map.on('click', 'my-data-layer', e => { /* clicked a feature in this layer */ })
+    map.on('mousemove',  e => { /* hover */ })
+    map.on('moveend',    () => console.log(map.getCenter(), map.getZoom()))
+    map.on('zoom',       () => { /* during zoom */ })
+    Always remove the listener if you add it conditionally (map.off('click', fn)).
+
+
+[9] REFS & LIFECYCLE GOTCHAS (the React side)
+    - We use useRef for the map instance (NOT useState). Storing the map in
+      state would re-render on every change — and the map mutates constantly.
+    - The cleanup function returns map.remove(). This frees the WebGL context
+      and event listeners. Without it, Vite's hot-reload will pile up phantom
+      maps and burn GPU memory.
+    - The dependency array is []. We do NOT want to rebuild the map when
+      props change. To respond to props, write a SECOND useEffect that calls
+      methods on mapRef.current, e.g.:
+          useEffect(() => {
+            mapRef.current?.flyTo({ center: props.target, zoom: 12 })
+          }, [props.target])
+    - Anything that touches sources/layers must wait for 'load':
+          map.on('load', () => { /* safe to addSource / addLayer */ })
+
+
+[10] SIZING (why the map sometimes shows up blank or tiny)
+    The container <div> MUST have a non-zero width AND height. We give it
+    100% / 100vh in MapView.css. If you nest the map inside a flex/grid
+    parent, make sure the parent also has a height.
+    When the container changes size dynamically (sidebar open/close, modal,
+    tab switch), call:   mapRef.current.resize()
+    Otherwise the canvas stays the old size until the next window resize.
+
+
+[11] CSS IMPORT (don't forget this)
+    src/components/MapView.jsx imports 'maplibre-gl/dist/maplibre-gl.css'.
+    Without it, controls and popups render unstyled (broken-looking buttons,
+    invisible popup tails). Import it once anywhere in the app.
+
+
+[12] OCEAN-FREIGHT POLYLINES (searoute → GeoJSON → MapLibre)
+    This is a *feature* slot, not a single line of code. The polyline system
+    has two halves: where the route GeoJSON is produced, and how MapLibre
+    renders it. They're independent and you can swap either without touching
+    the other.
+
+    PRODUCER (Python side, NOT in this repo yet)
+      `searoute.searoute(origin, destination, restrictions={...})` returns a
+      GeoJSON Feature with LineString geometry. You decide the delivery
+      mechanism — see polylineApproach.txt for six options ranked by scale:
+        1. Static GeoJSON file in /public        ← simplest, recommended start
+        2. One file per route + an index.json     ← scales to 1000s
+        3. Python API (FastAPI) on demand         ← arbitrary endpoints
+        4. Hybrid precompute + cache              ← production default
+        5. PostGIS-backed                         ← spatial-heavy products
+        6. Vector tiles (MVT)                     ← 10k+ routes
+
+    CONSUMER (this repo, src/components/MapView.jsx)
+      Regardless of which producer you pick, the MapLibre side is the same
+      pattern from section [7]:
+        map.on('load', () => {
+          map.addSource('routes', {
+            type: 'geojson',
+            data: '/data/routes.geojson',   // OR an inline object, OR a URL
+                                            //    served by your API
+          })
+          map.addLayer({
+            id: 'routes-line',
+            type: 'line',
+            source: 'routes',
+            paint: {
+              // Data-driven styling: colour by the `via` property baked
+              // into each Feature when you generated it in Python.
+              'line-color': ['match', ['get', 'via'],
+                'panama', '#d62728',
+                'suez',   '#1f77b4',
+                /* default */ '#444',
+              ],
+              'line-width': 2,
+            },
+          })
+        })
+
+    THE TWO MOVING PARTS YOU'LL TYPICALLY TWEAK
+      • The DATA URL/object passed to addSource — swap files, point at an
+        API, or call `.setData(...)` on the source after the user picks a
+        new origin/destination.
+      • The PAINT object on the line layer — colour, width, dash pattern
+        ('line-dasharray': [2, 2]), opacity. Drive these from Feature
+        properties (`['get', 'via']`, `['get', 'distance_km']`, etc.) so
+        styling stays declarative.
+
+    WHERE THIS PLUGS INTO THE EXISTING GEARS
+      • Section [7] (sources & layers) — this is the mechanism polylines
+        use. They are simply a `'line'` layer fed by a `'geojson'` source.
+      • Section [8] (events) — `map.on('click', 'routes-line', e => ...)`
+        gives you the clicked Feature's properties for popups / sidebars.
+      • Section [9] (refs & lifecycle) — when route data depends on React
+        state (selected origin, selected canal), put the fetch + setData
+        call in a *separate* useEffect that depends on those props and
+        guards on `mapRef.current?.isStyleLoaded()`. Don't rebuild the map.
+      • Section [3] (initial view) — once routes load, you can
+        `map.fitBounds(turf.bbox(routesGeoJSON))` to frame them.
+
+    GOTCHAS SPECIFIC TO SHIPPING ROUTES
+      • Antimeridian: trans-Pacific routes cross 180°/-180°. Either keep
+        longitudes continuous (-185, -190, ...) or split into a
+        MultiLineString — be consistent or you'll get teleporting lines.
+      • Density: searoute outputs many vertices. Simplify (Shapely / PostGIS
+        / mapshaper) before serving — smaller payloads, smoother render.
+      • Layer order: insert the line layer *before* label layers so country
+        names stay on top. The third arg to addLayer is the id to insert
+        before. List them with `map.getStyle().layers.map(l => l.id)`.
+
+    See polylineApproach.txt (in this repo root) for full details, code
+    samples, a decision matrix, and a production checklist.
+
+
+COMMON RECIPES — copy/paste starting points
+===========================================
+
+  Fly to a location:
+      map.flyTo({ center: [-122.4194, 37.7749], zoom: 12, speed: 1.2 })
+
+  Fit map to a bounding box:
+      map.fitBounds([[-123, 37], [-121, 38]], { padding: 40 })
+
+  Convert pixel <-> coords:
+      const lngLat = map.unproject([x, y])
+      const point  = map.project([lng, lat])
+
+  Toggle a layer's visibility:
+      map.setLayoutProperty('my-data-layer', 'visibility', 'none')  // or 'visible'
+
+  Read the current view:
+      map.getCenter(), map.getZoom(), map.getBearing(), map.getPitch()
+
+
+RUNNING THE APP
+===============
+  npm run dev      Start the dev server (default http://localhost:5173)
+  npm run build    Production build into dist/
+  npm run preview  Serve the production build locally
+
+
+REFERENCE LINKS
+===============
+  Docs:    https://maplibre.org/maplibre-gl-js/docs/
+  Style spec:   https://maplibre.org/maplibre-style-spec/
+  Examples:     https://maplibre.org/maplibre-gl-js/docs/examples/
