@@ -3,7 +3,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import './MapView.css'
 
-const STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty'
+const STYLE_URL = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json'
 const INITIAL_CENTER = [0, 20]
 const INITIAL_ZOOM = 1.5
 
