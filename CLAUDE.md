@@ -14,8 +14,9 @@ It is a **port of a working vanilla-Leaflet prototype**. The behavioral source o
 
 When in doubt about *what a feature should do*, read that file — it is the reference
 implementation. This repo reimplements the same mechanics on MapLibre GL (vector tiles,
-GeoJSON sources + symbol/line layers) instead of Leaflet (raster tiles + DOM markers), and
-**adds real-time vessel animation** that the Leaflet version does not have.
+GeoJSON sources + symbol/line layers) instead of Leaflet (raster tiles + DOM markers).
+Vessel positions are estimates interpolated from shipping dates and are **static between
+data refreshes** — there is no animation loop (§6).
 
 **Stack**
 - Build: Vite
@@ -54,7 +55,7 @@ npm run lint      # ESLint
 - **Prefer data-driven layers over DOM markers.** Represent vessels/containers as features
   in a single GeoJSON source, rendered by `symbol`/`circle`/`line` layers, and update them
   with `map.getSource(id).setData(...)`. This scales far better than one
-  `maplibregl.Marker` per vessel and is required for smooth animation.
+  `maplibregl.Marker` per vessel, and lets you update all positions in one call on refresh.
 - **Style:** Carto Positron (`https://basemaps.cartocdn.com/gl/positron-gl-style/style.json`).
   The Leaflet version used Carto `light_nolabels` raster tiles — Positron is the vector
   equivalent.
@@ -62,9 +63,8 @@ npm run lint      # ESLint
 ## 4. Data model
 
 > This section documents the **in-app shape** the map mechanics (§5–§8) consume. The
-> **production Supabase schema** (shipments, line-items, issues, baseline ETA, health
-> status) lives in **§14** — normalize Supabase rows into the shape below before feeding
-> the map.
+> **production Supabase schema** (shipments, line-items, issues, health status) lives in
+> **§14** — normalize Supabase rows into the shape below before feeding the map.
 
 ### Shipments (operational data)
 In the prototype this is an inline JSON array (`<script id="inbounds-data">`). In the React
@@ -80,8 +80,7 @@ app, load it from Supabase (§14). Fields per shipment:
 | `container` | container number |
 | `vessel` | vessel name |
 | `actual_shipping` | `YYYY-MM-DD` departure (route start date) |
-| `expected_portdate` | `YYYY-MM-DD` **current** forwarder ETA — moves each snapshot; the route end date that drives map progress + the §6.2 animation |
-| `forwarder_initial_eta` | `YYYY-MM-DD` forwarder's **first** ETA — set once, never overwritten. Baseline for delay-vs-plan. See §14 |
+| `expected_portdate` | `YYYY-MM-DD` latest forwarder ETA (from the most recent push); the route end date that drives map progress (§6) |
 | `actual_portdate` | `YYYY-MM-DD` actual arrival, or `""` if not arrived |
 | `appointment_date` | drayage appointment, or `""` |
 | `arrival_notice` | `"yes"` / `"no"` |
@@ -177,7 +176,7 @@ This makes the effect zoom-aware for free: zoom in → the same geo gap becomes 
 clusters split → offsets vanish, so a vessel sits exactly on its true position once it's
 visually distinguishable. It also avoids the latitude distortion of degree-based offsets.
 
-**Algorithm** (operates on the true, post-ETA-easing positions from §5.1/§6):
+**Algorithm** (operates on the vessel positions computed in §5.1/§6):
 
 1. **Project:** `px = map.project([lng, lat])` for every en-route vessel.
 2. **Cluster** by pixel distance under a threshold ≈ icon size (`CLUSTER_PX ≈ 36`). For our
@@ -203,15 +202,14 @@ visually distinguishable. It also avoids the latitude distortion of degree-based
 **Avoid per-frame flicker** (two cheap rules, both required):
 - **Stable slots:** sort each cluster's members by `shipment` id before assigning spiral
   slots, so a given vessel keeps its slot while the cluster persists — no swapping/popping.
-- **Decouple compute from apply:** recompute clusters on `move` / `zoom` / data-refresh
-  events (and while an ETA-ease is active), cache each vessel's `offsetPx`, and just *apply*
-  the cached offset every frame. Mirrors how the original only recomputed jitter on
-  `zoomend`/`moveend`. Optionally ease `offsetPx` toward its new target over ~200 ms so
-  transient membership changes never pop.
+- **Recompute on the right events:** positions are static between refreshes (§6), so
+  recompute clusters on `move` / `zoom` / data-refresh only — not on a timer. Mirrors how the
+  original recomputed jitter on `zoomend`/`moveend`. Cache each vessel's `offsetPx` and reuse
+  it until the next such event.
 
-**Composition order per vessel:** true progress → `vesselPos` (§5.1, incl. easing) →
-**project → cluster → spiral offset → unproject** → write feature. Bearing is still taken
-from route direction (§5.2); the offset only nudges the icon a few px and never rotates it.
+**Composition order per vessel:** progress → `vesselPos` (§5.1) → **project → cluster →
+spiral offset → unproject** → write feature. Bearing is taken from route direction (§5.2);
+the offset only nudges the icon a few px and never rotates it.
 
 Tunables: `CLUSTER_PX` (overlap threshold) and `RING_PX` (spread tightness).
 
@@ -246,92 +244,36 @@ In MapLibre, drive this with a zoom-interpolated `icon-size` expression instead 
 recreating icons, e.g. `"icon-size": ["interpolate", ["linear"], ["zoom"], 3, 0.4, 10, 1.0]`
 (tune stops to match the clamps above).
 
-## 6. Real-time animation
+## 6. Vessel positions — computed once per refresh (no animation)
 
-The Leaflet version computes each vessel position **once** on load and never advances it
-within a day — movement only appeared when you reloaded on a later calendar day. This app
-runs the **same math continuously** in one `requestAnimationFrame` loop, with two behaviors:
-an always-on **standard** mode, and an event-driven **ETA-update easing** mode.
+**There is no animation loop, and no ETA-change tracking.** The map simply renders each
+vessel at the position implied by the **latest** `expected_portdate` (the most recent push
+state). Positions are **static** between data refreshes — computed once when data loads, and
+recomputed only when the data changes or the map view changes. The app keeps no prior ETA and
+draws no "delayed/ahead" indicator; whatever the forwarder last reported is the truth it
+shows. The feed updates ~3×/week, so a vessel's position barely moves between refreshes and a
+continuous `requestAnimationFrame` loop would redraw imperceptible sub-pixel motion every
+frame — it buys nothing.
 
-### 6.1 Standard mode (always on)
+### When to (re)compute positions
 
-Drive `progress` from the **real wall clock** — no speed-up factor. Each frame:
+Compute the vessel/container GeoJSON and call `map.getSource(...).setData(fc)` only on:
 
-1. For each en-route shipment, `progress = (Date.now() − startDate) / (endDate − startDate)`,
-   clamped `[0, 1]` (here `endDate` = the current `expected_portdate`).
-2. Recompute `vesselPos` (§5.1) and `bearing` (§5.2), apply jitter (§5.3).
-3. Write each vessel's `geometry.coordinates` (`[lng, lat]`) and `bearing` property into one
-   FeatureCollection, then call `map.getSource('vessels').setData(fc)` **once per frame**
-   (batch all vessels — never `setData` per vessel).
+1. **Data load / refresh** — initial fetch, and any later refresh (manual reload, or a
+   Supabase realtime event if you add one). Recompute `progress` (§5.1) → `vesselPos`,
+   `bearing` (§5.2) for every en-route shipment; place containers (§5.4).
+2. **`zoom` / `move`** — re-run the proximity de-cluster (§5.3) and any zoom-reactive icon
+   sizing, since those depend on the projected screen position, then `setData` once. (Icon
+   size can instead be a zoom expression on the layer, avoiding even this — see §5.5.)
 
-**On-screen the ship does not visibly move** — a 30-day voyage advances ~0.0000004% per
-frame, below perception. That is expected and fine. The reason to run the loop anyway is
-*how the data is processed*: per-frame `setData` + GPU-driven symbol rendering is the smooth,
-efficient, "honest" way to render the live position, and it's the same machinery the easing
-mode (§6.2) needs. This is the **default** for every en-route vessel.
+That's it — no per-frame work, no `cancelAnimationFrame` to manage. `progress` uses the
+client clock at compute time:
+`progress = clamp((Date.now() − startDate) / (expected_portdate − startDate), 0, 1)`.
 
-- Symbol rotation comes "for free" from `"icon-rotate": ["get", "bearing"]`; you only update
-  the property, not the layer.
-- **Cleanup:** `cancelAnimationFrame(rafRef.current)` in the effect cleanup, alongside
-  `map.remove()`. Pause the loop on `visibilitychange` when the tab is hidden.
-- Containers (future/arrived) are static — they don't ride the loop, only a jitter/size
-  refresh on zoom.
-
-### 6.2 ETA-update easing (event-driven — the visible movement)
-
-Forwarders give an initial ETD (`actual_shipping`) and ETA (`expected_portdate`); the ETA is
-**revised during the voyage** — pushed later (delayed), pulled earlier (faster), or left
-unchanged. Because `progress`'s denominator is `(endDate − startDate)`, changing the ETA
-changes where the vessel *should* be **right now**:
-
-- **Later ETA** → longer trip → the same elapsed time is a smaller fraction → true "now"
-  position moves **backward** along the route.
-- **Sooner ETA** → shorter trip → true "now" position moves **forward**.
-- **Unchanged ETA** → no jump; standard imperceptible drift (§6.1) just continues. **No
-  easing fires.**
-
-When a data refresh changes a vessel's `expected_portdate`, **don't snap** to the new
-position — **ease the `progress` value** from the currently rendered progress to the new
-true-now progress over ~1–2s with an ease-in-out, recomputing `vesselPos` from the polyline
-each frame. Because we interpolate *progress* (not lat/lng), the ship **glides along its
-actual route**, never cutting across land/ocean.
-
-Two locked-in behaviors for this slide:
-- **Path:** progress-based easing along the route (not a straight-line lerp between points).
-- **Heading:** the icon **keeps facing forward toward POD** for the whole slide — i.e. take
-  `bearing` from the route toward the next waypoint (§5.2), **not** from the frame-to-frame
-  motion delta. So a *delayed*-ETA correction looks like the ship drifting backward while
-  still pointing ahead, never spinning 180°.
-
-**State to track per vessel** (in a ref-held map keyed by `shipment` id):
-
-```js
-// renderedProgress: what's currently drawn (tracks live truth when no transition active)
-// transition: null, or { fromProgress, toProgress, startTime, durationMs }
-```
-
-Each frame:
-```js
-const trueProgress = clamp((now - startDate) / (endDate - startDate), 0, 1);
-if (v.transition) {
-  const t = Math.min((now - v.transition.startTime) / v.transition.durationMs, 1);
-  v.renderedProgress = lerp(v.transition.fromProgress, v.transition.toProgress, easeInOut(t));
-  if (t >= 1) v.transition = null;        // resume tracking live truth
-} else {
-  v.renderedProgress = trueProgress;
-}
-// vesselPos = positionAtProgress(route, v.renderedProgress)   // §5.1 interpolation
-```
-
-**Detecting an ETA change:** keep the last-seen `expected_portdate` per `shipment` id. When
-new data arrives with a different value, start a transition: `fromProgress = current
-renderedProgress`, `toProgress = clamp((now − startDate) / (newEndDate − startDate), 0, 1)`,
-`startTime = now`, `durationMs ≈ 1200`. Then adopt `newEndDate` as the vessel's `endDate` so
-standard mode continues from the new ETA after the slide completes.
-
-> Note: `toProgress` is snapshotted at transition start. True progress barely moves over ~1s,
-> so a fixed target is fine; if you want to be exact, re-evaluate `toProgress` each frame
-> against the new `endDate` and the slide will settle onto live truth seamlessly.
+- Symbol rotation: `"icon-rotate": ["get", "bearing"]`; bearing is written once per compute.
+- Containers (future/arrived) were already static — unchanged.
+- Honest-position note: the dot is an **estimate** interpolated from ETD→ETA by distance, not
+  a live GPS fix. Worth a small "estimated · updated <date>" caption in the UI.
 
 ## 7. Three-state logic (per shipment)
 
@@ -341,7 +283,7 @@ Decide state from today's local-midnight date:
 |---|---|---|---|---|
 | **Future** | `startDate > today` | `polCoords` + spiral offset | container | blue |
 | **Arrived** | `actual_portdate` set and `≤ today` | `podCoords` + spiral offset | container | `appointment_date` set → **green**; else days-at-CY `> 3` → **red**; else **blue** |
-| **En route** | otherwise | interpolated `vesselPos` (animated) | ship | `arrival_notice === "yes"` → **green**; else **black** |
+| **En route** | otherwise | interpolated `vesselPos` (estimated, static between refreshes) | ship | `arrival_notice === "yes"` → **green**; else **black** |
 
 - days-at-CY = `floor((today - actual_portdate) / 1 day)`.
 - transit days (future popup) = `floor((endDate - startDate) / 1 day)`;
@@ -428,11 +370,10 @@ and **answering shipment lookups fast**. Two primary jobs:
    terminal, missed connection, documentation errors, missing documents, missing arrival
    notice, etc.) and **filter the dashboard to show only shipments needing resolution** —
    healthy shipments hide.
-2. **Fast lookup.** A customer calls asking how a shipment is doing vs. its planned date.
-   Today ops identify the item, then look it up in **NetSuite** data tables. Replace that
-   with a search over container # / HBL / MBL / PO / item name / final port that jumps
-   straight to the shipment's current progress and **delay vs plan** =
-   `expected_portdate − forwarder_initial_eta` (see §14).
+2. **Fast lookup.** A customer calls asking how a shipment is doing. Today ops identify the
+   item, then look it up in **NetSuite** data tables. Replace that with a search over
+   container # / HBL / MBL / PO / item name / final port that jumps straight to the
+   shipment's current progress and latest ETA (`expected_portdate`).
 
 **UX stance: search/list-first, map-linked.** Lookups are best served by *search → result
 row → detail*, not by hunting on the globe. Grow the sidebar into **search bar → filter
@@ -441,8 +382,8 @@ popup. The map and list read from one shared filtered dataset.
 
 **Roadmap**
 - **Phase 1 (first deployment):** manual thrice-weekly snapshot push to Supabase (§14); the
-  dashboard reads shipments/routes, supports issues/notes, search/filter, and the map
-  animation. This is the current target.
+  dashboard reads shipments/routes and renders the fleet as static estimated positions (§6),
+  with issues/notes and search/filter. This is the current target.
 - **Phase 2 (later, separate project):** automated API/ETL from forwarder feeds / NetSuite
   into Supabase. Same schema — only ingestion changes (no app rewrite).
 
@@ -466,17 +407,16 @@ expects before feeding the map.
 - **shipments** — one row per container shipment = the current snapshot; **upserted** by the
   Python job on the shipment-id PK. Fields: `shipment` (PK), `container`, `vessel`,
   `confirmed_carrier`, route `key`, `port_of_loading`, `port_of_discharge`, `Lastcy`,
-  `actual_shipping` (ETD), `expected_portdate` (**current** forwarder ETA — changes each
-  snapshot), **`forwarder_initial_eta`** (forwarder's first ETA — set once, never
-  overwritten), `actual_portdate`, `appointment_date`, `arrival_notice`, `last_freeday`,
-  `hbl`, `mbl`, plus a denormalized `search_text` blob, and `first_seen` / `last_updated`
-  timestamps. Consider an `active` flag (see ingestion) instead of deleting departed
-  shipments.
+  `actual_shipping` (ETD), `expected_portdate` (latest forwarder ETA — the push overwrites it
+  freely; drives map position, §6), `actual_portdate`, `appointment_date`, `arrival_notice`,
+  `last_freeday`, `hbl`, `mbl`, plus a denormalized `search_text` blob, and `first_seen` /
+  `last_updated` timestamps. Consider an `active` flag (see ingestion) instead of deleting
+  departed shipments.
 - **line_items** — container → many items (one-to-many). Fields: `id`, `container` (FK),
   `item_name`, `po_number` / `purchase_order`, `customer`, `qty`. Powers item / PO /
   customer search; fold these into the parent's `search_text`.
 - **issues** — collaborative writes (the app's only client write-path). Fields: `id`,
-  `shipment`/`container` (FK), `author`, `created_at`, `category` (enum:
+  `shipment` (FK → shipments PK), `author`, `created_at`, `category` (enum:
   `door_damage`, `missed_connection`, `doc_error`, `missing_documents`,
   `missing_arrival_notice`, `other`), `severity` (low/med/high), `status` (`open`|`resolved`),
   `note` (free text), `resolved_at`, `resolved_by`. **Structured, not a free-text blob** —
@@ -489,19 +429,11 @@ day OR (en route AND missing arrival_notice) OR (arrived AND days-at-CY > 3 AND 
 appointment)`. Drives both the **urgent filter** and the **icon color** (generalizes the
 red/green/blue rules in §7).
 
-### ETA rules (critical) — two dates
-- **`expected_portdate`** — current forwarder ETA. The snapshot updates it freely; it drives
-  map progress and the §6.2 animation.
-- **`forwarder_initial_eta`** — the forwarder's first ETA. The Python upsert sets it **only on
-  first insert** (when null) and **never overwrites** it.
-
-**Delay vs plan** = `expected_portdate − forwarder_initial_eta` — reported in the §8 sidebar /
-list. A later current ETA (`+++`) means delayed; an earlier one (`---`) means ahead.
-
-**Same data drives the animation:** the §6.2 slide is the change in `expected_portdate`
-between snapshots — a `+++` update slides the ship backward, a `---` update slides it forward.
-`forwarder_initial_eta` is a static baseline for the delay number; it never moves the ship.
-(A customer-facing planned ETA is intentionally **out of scope for now** — to be added later.)
+### ETA — a single date
+**`expected_portdate`** is the only ETA: whatever the latest push reported. The snapshot
+overwrites it freely; it sets the vessel's position on the map (§6). The app keeps **no prior
+ETA, no baseline, and no delay/“behind plan” indicator** — it always shows the latest reported
+truth. (Comparing against an original/planned ETA is intentionally out of scope for now.)
 
 ### Ingestion — Phase 1 (manual Python push), Mondays / Wednesdays / Fridays
 1. Pull forwarder updates, run the existing inbound report → a **snapshot** file (updated
@@ -509,15 +441,13 @@ between snapshots — a `+++` update slides the ship backward, a `---` update sl
 2. Push to Supabase by **upserting `shipments` on the `shipment` PK** (and `line_items`).
    New shipments insert (new markers appear); existing ones update their dates.
    - **Do NOT delete-all-then-insert.**
-   - **Do NOT touch the `issues` table** — issues are keyed to containers and must survive
-     every snapshot.
-   - **Preserve `baseline_eta`** (set-if-null only).
+   - **Do NOT touch the `issues` table** — issues are keyed to the `shipment` id (the
+     NetSuite-generated Inbound Shipment number: stable + unique) and must survive every
+     snapshot.
    - For shipments absent from the latest snapshot (delivered / aged out), flip an `active`
      flag rather than deleting, so their issue history is retained.
 
-### Snapshot cadence ↔ animation
-ETA "updates" arrive as new snapshots **3×/week, not continuously**. The §6.2 easing fires
-when the client sees a vessel's `expected_portdate` differ from what it last had — on data
-reload, or live via a Supabase **realtime** subscription if the dashboard is open when a push
-lands. Across reloads the static "behind plan" number (baseline vs current) always shows; the
-slide animation is the within-session reveal when fresh data arrives.
+### Snapshot cadence
+New snapshots arrive **3×/week, not continuously**, so vessel positions only change on a data
+refresh. The map just renders the latest pushed `expected_portdate` for each vessel as a
+**static** position (§6) — no prior state is kept and no change is tracked between pushes.
