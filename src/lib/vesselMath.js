@@ -69,6 +69,30 @@ export function positionAtProgress(coords, progress) {
   return { pos: coords[coords.length - 1], cut: coords.length - 2 }
 }
 
+// Golden-angle spiral offset for containers sharing a port (CLAUDE.md §5.4).
+// index 0 = exactly on the port; radius compresses past zoom 7. p = [lng, lat].
+export function applyContainerOffset([lng, lat], zoom, index = 0) {
+  if (index === 0) return [lng, lat]
+  const baseOffset = 0.6
+  const minZoom = 3
+  const maxZoom = 7
+  const spiralScale = Math.pow(minZoom / Math.min(zoom, maxZoom), 1.2)
+  const compress = zoom > maxZoom ? Math.exp(-(zoom - maxZoom) / 3) : 1
+  const j = baseOffset * spiralScale * compress
+  const angle = (index * 137.5 * Math.PI) / 180 // golden angle
+  return [lng + Math.cos(angle) * j, lat + Math.sin(angle) * j]
+}
+
+// Container color rule for the ARRIVED state (CLAUDE.md §7):
+// appointment set -> green; else days-at-CY > 3 -> red; else blue.
+export function containerColor(s, today = new Date()) {
+  if (s.appointment_date && s.appointment_date.trim() !== '') return 'green'
+  const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const arrived = parseYMD(s.actual_portdate)
+  const daysAtCY = arrived ? Math.floor((todayMid - arrived) / 86400000) : 0
+  return daysAtCY > 3 ? 'red' : 'blue'
+}
+
 // Three-state classification (CLAUDE.md §7). Today defaults to now's local midnight.
 export function shipmentState(s, today = new Date()) {
   const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate())

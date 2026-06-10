@@ -45,7 +45,7 @@ const inboundShipments = [
     route: 'Mundra, India - New York, NY',
     actual_shipping: '2026-04-21',
     expected_portdate: '2026-06-20',
-    actual_portdate: '',
+    actual_portdate: '2026-06-08', // TEST: arrived 1 day ago (from India) -> blue container at New York
     appointment_date: '',
     arrival_notice: 'no',
     last_freeday: '2026-06-09',
@@ -90,7 +90,7 @@ const inboundShipments = [
     route: 'Bangkok, Thailand - New York, NY',
     actual_shipping: '2026-03-24',
     expected_portdate: '2026-06-10',
-    actual_portdate: '',
+    actual_portdate: '2026-06-04', // TEST: arrived 5 days ago -> red container at New York
     appointment_date: '',
     arrival_notice: 'no',
     last_freeday: '',
