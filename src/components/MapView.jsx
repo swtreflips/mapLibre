@@ -18,6 +18,14 @@ import {
 //   'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json'
 //   'https://tiles.openfreemap.org/styles/liberty'
 const STYLE_URL = 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json'
+
+// MapLibre paints on a canvas and cannot read CSS, so skin tokens have to be resolved to
+// literals and handed over. Without this the map keeps stock colours while every surface around
+// it follows the skin — the same trap the MUI sx blocks and the ag-Grid theme hit in the other
+// apps: anything styled outside CSS opts out of the theme silently.
+const skinToken = (name, fallback) =>
+  (typeof window !== 'undefined' &&
+    getComputedStyle(document.documentElement).getPropertyValue(name).trim()) || fallback
 const INITIAL_CENTER = [0, 20]
 const INITIAL_ZOOM = 1.5
 const SELECT_ZOOM = 5 // fly-to zoom when a vessel is selected (only zooms in, never out)
@@ -161,7 +169,7 @@ export default function MapView({ shipments, onSelect }) {
         source: 'remaining-route',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': '#1d4ed8',
+          'line-color': skinToken('--c-signal-600', '#ad552a'),
           'line-width': 1.8,
           'line-opacity': 0.85,
           'line-dasharray': [2, 2],

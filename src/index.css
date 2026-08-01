@@ -1,3 +1,15 @@
+/*
+  Base typography and layout reset.
+
+  Every colour and font in this app comes from the active skin — public/skins/linen.css, loaded
+  by <link id="skin"> in index.html. That is the same file, with the same variable names, that
+  RatesApp, Schedules and the Stuffer Planner use, so this app speaks the platform's vocabulary
+  from its first screen rather than growing a look of its own and being converged later.
+
+  Nothing here should hardcode a colour. If a value is needed that the skin does not define,
+  the skin is what should gain it.
+*/
+
 html,
 body,
 #root {
@@ -8,7 +20,15 @@ body,
 }
 
 body {
-  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans);
+  color: rgb(var(--c-harbor-900));
+  background: rgb(var(--c-fog-50));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Numbers in a logistics UI are read down a column and compared — they must line up. */
+.tabular,
+.sidebar .value {
+  font-variant-numeric: tabular-nums;
 }

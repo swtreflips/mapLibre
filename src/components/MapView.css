@@ -9,16 +9,19 @@
   height: 100%;
 }
 
+/* Error surfaces belong to the palette too. A stock red alert box beside a warm sidebar reads
+   as a piece of a different application — which is exactly what it used to be. */
 .map-error {
   position: absolute;
-  top: 10px;
-  left: 10px;
+  top: 12px;
+  left: 12px;
   z-index: 1;
   max-width: 60%;
   padding: 8px 12px;
-  background: #fee2e2;
-  border: 1px solid #fca5a5;
-  border-radius: 6px;
-  color: #991b1b;
-  font: 13px Arial, sans-serif;
+  background: rgb(var(--c-signal-50));
+  border: 1px solid rgb(var(--c-signal-300));
+  border-radius: var(--radius-lg);
+  color: rgb(var(--c-signal-700));
+  font: 500 13px var(--font-sans);
+  box-shadow: var(--shadow-card);
 }
