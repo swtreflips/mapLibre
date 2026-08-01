@@ -1,0 +1,37 @@
+/*
+  MODULE ACCENT: Inbound — transit violet.
+
+  Loaded AFTER linen.css, and overrides only the accent ramp. Everything else — neutrals, ink,
+  type, shape, depth, motion — still comes from the shared skin, which is the whole point: the
+  invariants carry the family, one variable carries the module. See OS/DESIGN.md.
+
+  Same lightness and chroma curve as every other module's accent, different hue, so no module
+  shouts louder than another.
+*/
+
+:root {
+  --c-signal-50: 247 245 255;
+  --c-signal-100: 237 234 254;
+  --c-signal-200: 217 211 253;
+  --c-signal-300: 195 185 248;
+  --c-signal-400: 169 154 234;
+  --c-signal-500: 144 125 214;
+  --c-signal-600: 116 97 181;
+  --c-signal-700: 95 78 150;
+  --c-signal-800: 75 62 120;
+  --c-signal-900: 57 47 94;
+  --c-signal-950: 32 25 56;
+
+  /* brand is a legacy alias of signal in the shared skin — keep them in step. */
+  --c-brand-50: 247 245 255;
+  --c-brand-100: 237 234 254;
+  --c-brand-200: 217 211 253;
+  --c-brand-300: 195 185 248;
+  --c-brand-400: 169 154 234;
+  --c-brand-500: 144 125 214;
+  --c-brand-600: 116 97 181;
+  --c-brand-700: 95 78 150;
+  --c-brand-800: 75 62 120;
+  --c-brand-900: 57 47 94;
+  --c-brand-950: 32 25 56;
+}
