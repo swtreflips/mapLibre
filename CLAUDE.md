@@ -592,8 +592,8 @@ colour and weight (US accented + bold, international grey + regular).
 | International load ports | `world_ports` ([useLoadingPorts.js](src/hooks/useLoadingPorts.js)) | **fixed** list `INTL_PORTS`; coordinates read live |
 
 **The two sides behave differently on purpose.** The US list is *live*: whatever operations add to
-`us_ports` appears on the map with no code change, minus an explicit exclusion set (currently
-Wilmington DE, Southwest Pass LA, Good Hope LA, Port Angeles WA, Gloucester NJ, San Diego CA). The international list is
+`us_ports` appears on the map with no code change, minus the explicit `US_PORT_EXCLUSIONS` set in
+[places.js](src/data/places.js) — ports that are in the table but not part of this network. The international list is
 *fixed*, so an unfamiliar port turning up in the schedules feed never silently rewrites the map —
 adding one is a deliberate edit to `INTL_PORTS`. Coordinates always come from `world_ports`, so a
 corrected coordinate takes effect with no redeploy.
