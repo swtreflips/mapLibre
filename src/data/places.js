@@ -101,6 +101,7 @@ export const US_PORT_EXCLUSIONS = new Set(
     'Good Hope, LA',
     'Port Angeles, WA',
     'Gloucester, NJ',
+    'San Diego, CA',
   ].map((s) => s.toLowerCase()),
 )
 
