@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:basemap": "node tools/build-basemap-data.mjs",
+    "build:glyphs": "node tools/build-glyphs.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.0",
@@ -24,6 +26,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.5.0",
+    "mapshaper": "^0.7.55",
     "vite": "^8.0.10"
   }
 }

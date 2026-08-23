@@ -12,23 +12,23 @@ import {
   shipmentState,
   containerColor,
 } from '../lib/vesselMath'
+import { buildBasemapStyle, mapPalette, FONT_REGULAR, FONT_BOLD } from '../map/basemapStyle'
+import { placesFC, buildPlacesFC } from '../data/places'
+import { useUsPorts } from '../hooks/useUsPorts'
+import { useLoadingPorts } from '../hooks/useLoadingPorts'
 
-// Basemap style. Voyager = colorful/Google-Maps-like (blue water, clean for overlays).
-// Alternatives: Positron (grey, minimal) | OpenFreeMap Liberty
-//   'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json'
-//   'https://tiles.openfreemap.org/styles/liberty'
-const STYLE_URL = 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json'
-
-// MapLibre paints on a canvas and cannot read CSS, so skin tokens have to be resolved to
-// literals and handed over. Without this the map keeps stock colours while every surface around
-// it follows the skin — the same trap the MUI sx blocks and the ag-Grid theme hit in the other
-// apps: anything styled outside CSS opts out of the theme silently.
-const skinToken = (name, fallback) =>
-  (typeof window !== 'undefined' &&
-    getComputedStyle(document.documentElement).getPropertyValue(name).trim()) || fallback
 const INITIAL_CENTER = [0, 20]
 const INITIAL_ZOOM = 1.5
 const SELECT_ZOOM = 5 // fly-to zoom when a vessel is selected (only zooms in, never out)
+// OpenMapTiles is z0-14 and overzooms cleanly above that; 17 is enough to see individual
+// buildings and yard entrances for drayage work without pushing the tiles past usefulness.
+const MAX_ZOOM = 17
+
+// Google-style label staging: a place appears — dot and name together — only once you've zoomed
+// past the `minzoom` it carries in src/data/places.js, so the fully-zoomed-out world view is
+// clean and places arrive in order of importance. MapLibre re-evaluates a zoom-dependent filter
+// only at INTEGER zoom levels, which is why those minzooms are whole numbers.
+const PLACE_ZOOM_FILTER = ['<=', ['get', 'minzoom'], ['zoom']]
 
 // Container spiral, in SCREEN PIXELS. A touch tighter when fully zoomed out and through the
 // first few zoom-ins, easing up to the base radius by ~zoom 6 (then steady).
@@ -124,6 +124,8 @@ export default function MapView({ shipments, onSelect }) {
   const [mapReady, setMapReady] = useState(false)
 
   const { routesByKey, error } = useRoutes()
+  const { usPorts } = useUsPorts()
+  const { intlPorts } = useLoadingPorts()
 
   // --- Map init (once). Do not rewrite this block. ---
   useEffect(() => {
@@ -131,10 +133,11 @@ export default function MapView({ shipments, onSelect }) {
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: STYLE_URL,
+      style: buildBasemapStyle(),
       center: INITIAL_CENTER,
       zoom: Math.max(INITIAL_ZOOM, initialMinZoom),
       minZoom: initialMinZoom,
+      maxZoom: MAX_ZOOM,
     })
     mapRef.current = map
 
@@ -159,6 +162,34 @@ export default function MapView({ shipments, onSelect }) {
       if (!map.hasImage('containerGreen')) map.addImage('containerGreen', cGreen.data, { pixelRatio: 2 })
       if (!map.hasImage('containerRed')) map.addImage('containerRed', cRed.data, { pixelRatio: 2 })
 
+      const palette = mapPalette()
+
+      // Ports / inland facilities (src/data/places.js). The DOT goes on before the vessels so
+      // a ship passing over a port covers it — the ship is the point of interest. The LABELS go
+      // on after, at the very top, so a name is never hidden behind an icon.
+      // Seeded with the international list only; the US ports arrive from Supabase and are
+      // swapped in by the effect below once they resolve.
+      map.addSource('places', { type: 'geojson', data: placesFC })
+
+      map.addLayer({
+        id: 'place-dots',
+        type: 'circle',
+        source: 'places',
+        filter: PLACE_ZOOM_FILTER,
+        paint: {
+          // White fill + coloured stroke reads as a hollow ring at these radii.
+          'circle-color': palette.dotFill,
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 2.5, 6, 4],
+          'circle-stroke-width': 1.4,
+          'circle-stroke-color': [
+            'match',
+            ['get', 'kind'],
+            'intl_port', palette.dotIntl,
+            palette.dotUs,
+          ],
+        },
+      })
+
       map.addSource('vessels', { type: 'geojson', data: EMPTY_FC })
       map.addSource('containers', { type: 'geojson', data: EMPTY_FC })
       map.addSource('remaining-route', { type: 'geojson', data: EMPTY_FC })
@@ -169,7 +200,7 @@ export default function MapView({ shipments, onSelect }) {
         source: 'remaining-route',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': skinToken('--c-signal-600', '#ad552a'),
+          'line-color': palette.route,
           'line-width': 1.8,
           'line-opacity': 0.85,
           'line-dasharray': [2, 2],
@@ -205,6 +236,45 @@ export default function MapView({ shipments, onSelect }) {
           'icon-allow-overlap': true,
           // 80x80 image @2x density => ~40px at size 1.0; these stops give ~24-44px square.
           'icon-size': ['interpolate', ['linear'], ['zoom'], 2, 0.6, 6, 0.8, 10, 1.1],
+        },
+      })
+
+      // Place labels, on top of everything.
+      map.addLayer({
+        id: 'place-labels',
+        type: 'symbol',
+        source: 'places',
+        filter: PLACE_ZOOM_FILTER,
+        layout: {
+          'text-field': ['get', 'name'],
+          'text-font': [
+            'match',
+            ['get', 'kind'],
+            'intl_port', ['literal', FONT_REGULAR],
+            ['literal', FONT_BOLD],
+          ],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 3, 11, 7, 13],
+          'text-anchor': 'left',
+          'text-offset': [0.7, 0],
+          'text-letter-spacing': 0.01,
+          'text-padding': 4,
+          // Let a crowded coast drop names instead of stacking them. Sorting by the same
+          // minzoom that gates the place means importance decides who keeps their name: a
+          // major port beats the rail yard next to it, which stays a bare dot until you zoom.
+          'text-allow-overlap': false,
+          'text-optional': true,
+          'symbol-sort-key': ['get', 'minzoom'],
+        },
+        paint: {
+          'text-color': [
+            'match',
+            ['get', 'kind'],
+            'intl_port', palette.labelIntl,
+            palette.labelUs,
+          ],
+          'text-halo-color': palette.labelHalo,
+          'text-halo-width': 1.4,
+          'text-halo-blur': 0.2,
         },
       })
 
@@ -268,6 +338,17 @@ export default function MapView({ shipments, onSelect }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // --- Swap in the ports once Supabase answers. ---
+  // Both sources feed one `places` source, and they resolve independently, so this reruns on
+  // either and rebuilds from whatever has arrived. Separate from the vessel effect below: places
+  // are static reference geometry with no projection-dependent maths, so they never need
+  // recomputing on zoomend.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!mapReady || !map || (!usPorts && !intlPorts)) return
+    map.getSource('places')?.setData(buildPlacesFC({ usPorts, intlPorts }))
+  }, [mapReady, usPorts, intlPorts])
 
   // --- Build / refresh positions when data is ready (no animation; CLAUDE.md §6). ---
   // Recompute on zoomend so the pixel-space container spiral stays a constant on-screen size.

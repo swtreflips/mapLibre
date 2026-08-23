@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Natural Earth downloads for `npm run build:basemap` (the generated
+# public/data/*.geojson ARE committed; these raw sources are not)
+tools/.cache
+
 # Secrets / env
 .env
 .env.*
