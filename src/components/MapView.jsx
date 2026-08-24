@@ -207,6 +207,36 @@ export default function MapView({ shipments, onSelect }) {
         },
       })
 
+      // Drayage: the road-following truck leg, from the HERE route cache. Deliberately SOLID and
+      // heavier where the ocean leg is dashed and thin — the two are told apart by line style, not
+      // colour, so the distinction survives for a colourblind reader. A white casing underneath
+      // keeps it legible once the street grid fades in around z11.
+      //
+      // DORMANT: nothing feeds this source yet, so it draws nothing. The plumbing is verified
+      // end to end (see src/hooks/useDrayageRoute.js and src/lib/flexPolyline.js) — wiring it up
+      // is one useDrayageRoute() call keyed on the selected shipment's POD -> Lastcy, plus a
+      // setData in an effect. Two things to settle when you do:
+      //   - draw only while a shipment is selected, the way remaining-route does;
+      //   - gate it to the roads' z7.5-9 fade, or it floats over blank land at country zoom.
+      map.addSource('drayage-route', { type: 'geojson', data: EMPTY_FC })
+      map.addLayer({
+        id: 'drayage-route-casing',
+        type: 'line',
+        source: 'drayage-route',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#ffffff', 'line-width': 6, 'line-opacity': 0.9 },
+      })
+      map.addLayer({
+        id: 'drayage-route',
+        type: 'line',
+        source: 'drayage-route',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': palette.route,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 5, 2, 12, 4],
+        },
+      })
+
       map.addLayer({
         id: 'vessels',
         type: 'symbol',
