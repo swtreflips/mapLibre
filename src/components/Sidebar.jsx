@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { parseYMD } from '../lib/vesselMath'
+import BrandMark from './BrandMark'
 import './Sidebar.css'
 
 // Snapshot counts over all shipments (CLAUDE.md §8).
@@ -39,6 +40,11 @@ export default function Sidebar({ shipments, selected }) {
 
   return (
     <aside className="sidebar">
+      {/* The module's only dark surface — see .sidebar__cap */}
+      <div className="sidebar__cap">
+        <BrandMark tone="dark" />
+      </div>
+
       <section className="panel">
         <h3>Selected Shipment</h3>
         {selected ? (

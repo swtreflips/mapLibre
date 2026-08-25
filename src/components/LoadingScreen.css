@@ -1,0 +1,59 @@
+/* Structure only — the ground, grain, grid and sweep animation all live in index.css and read
+   tokens from the shared skin. */
+
+/*
+  Fills its positioned parent rather than the viewport, so it can sit over the map while the
+  sidebar stays usable — a route fetch does not need to take the whole screen hostage. The
+  modifier below is for the auth gate, which will.
+*/
+.gate {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: #fff;
+}
+
+.gate--fullscreen {
+  position: fixed;
+  z-index: 50;
+}
+
+.gate__inner {
+  position: relative; /* above the ::before grain and ::after grid */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.gate__rail {
+  position: relative;
+  width: 14rem;
+  height: 0.25rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background-color: rgb(255 255 255 / 0.1);
+}
+
+.gate__bar {
+  position: absolute;
+  width: 25%;
+  height: 100%;
+  border-radius: 999px;
+  background-color: rgb(var(--c-signal-400));
+}
+
+/* Mono, uppercase, widely tracked — the same caption treatment as the other three modules.
+   harbor-300 reads 8.99:1 on the deep end of the ground. */
+.gate__caption {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: rgb(var(--c-harbor-300));
+}

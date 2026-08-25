@@ -1,5 +1,30 @@
 /* The inbound sidebar. Colour, type and depth come from the skin; only structure lives here. */
 
+/*
+  THE BRAND CAP — the module's only chrome.
+
+  DESIGN.md: dark is global navigation chrome and nothing else. Inbound had no chrome at all, so
+  the lockup had nowhere to live that did not break that rule — a brand dropped into the light
+  panels below would have made a content surface look like navigation.
+
+  64px tall with a 1rem inset puts the icon slot at exactly (16, 14) from the viewport corner, the
+  same coordinates the mark occupies in Rates, Schedules and Planner. Switching between the four in
+  adjacent tabs leaves it pinned instead of hopping.
+
+  It takes --bg-harbor-mesh rather than flat ink, which settles the one open item DESIGN.md
+  recorded: the gradient spreads across the estate rather than a second flat treatment appearing
+  beside it. The token is already in the shared skin, so this costs one line.
+*/
+.sidebar__cap {
+  flex: 0 0 auto;
+  height: 4rem;
+  display: flex;
+  align-items: center;
+  padding: 0 1rem;
+  background-image: var(--bg-harbor-mesh);
+  border-bottom: 1px solid rgb(255 255 255 / 0.05);
+}
+
 .sidebar {
   width: 380px;
   flex: 0 0 380px;
@@ -23,9 +48,15 @@
   flex: 0 0 auto;
 }
 
+/*
+  Headings inherit the UI sans. They used --font-display, which on linen is Fraunces — a serif —
+  and that made this the only module in the estate whose headings read differently. Rates moved off
+  it; Schedules and Planner never used it. Fraunces now appears in one place only, the logotype.
+  The display TRACKING stays, because it is what makes a heading read as a heading.
+*/
 .sidebar h3 {
   margin: 0 0 12px;
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 17px;
   font-weight: 600;
   letter-spacing: var(--tracking-display);

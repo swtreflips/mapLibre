@@ -1,0 +1,135 @@
+/*
+  The app's identity lockup — icon slot and wordmark.
+
+  ONE STRUCTURE ACROSS THE ESTATE. Rates, Schedules, Planner and Inbound carry the same two parts in
+  the same proportions and differ only in their accent. The other three express this in Tailwind
+  utilities; this module has no Tailwind, so it is written out here. THE NUMBERS ARE THE CONTRACT,
+  not the class names — 3.24rem / 1.44rem / 0.625rem / 1rem are the same values those utilities
+  resolve to, and they are what keeps the mark pinned when you switch tabs.
+
+  ── Colour needs no decisions here ───────────────────────────────────────────────────────────────
+  Inbound overrides the `signal-*` ramp in accent-inbound.css rather than inventing token names, so
+  this file reads `--c-signal-*` and gets transit violet, while the identical rules in RatesApp get
+  terracotta. That is the design system working: the invariants carry the family, the accent carries
+  the module.
+
+  ── Why Fraunces, and only here ──────────────────────────────────────────────────────────────────
+  A logotype wants a face the interface never uses — Adobe Clean, Google Sans and Atlassian's
+  Charlie all exist for that reason. Set in the UI face at UI weight, a product name reads as a
+  label rather than an identity. `--font-logo` is Fraunces and nothing else in the app touches it.
+
+  OPTICAL SIZING IS THE BROWSER'S JOB. The font is requested with `opsz` as a range so it stays
+  variable and `font-optical-sizing: auto` picks the right optical size for 1rem and 1.875rem on its
+  own. Declaring `font-variation-settings` here would silently switch that off.
+*/
+
+.brandmark {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+
+  /* A MARK, NOT A CONTROL. It is not a link — a logo earns one only when there is somewhere to go,
+     and this module is a single screen. `user-select` matters as much as the cursor: dragging
+     across a wordmark and watching it highlight is the tell that something is text. */
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ── the reserved slot ─────────────────────────────────────────────────────
+   Empty today. It holds its full square and takes the wash regardless, so when
+   artwork arrives nothing around it moves. */
+.brandmark__slot {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.brandmark__slot img,
+.brandmark__slot svg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.brandmark__monogram {
+  font-family: var(--font-logo);
+  font-weight: 500;
+  line-height: 1;
+}
+
+.brandmark__name {
+  font-family: var(--font-logo);
+  font-weight: 500;
+  line-height: 1;
+}
+
+/* ── sizes ─────────────────────────────────────────────────────────────────
+   sm sits in chrome, lg on the gate screens where the lockup is alone. The radius scales with the
+   box: holding it fixed while the square grows reads as a shape change rather than a size change. */
+.brandmark--sm {
+  gap: 0.625rem;
+}
+.brandmark--sm .brandmark__slot {
+  width: 3.24rem;
+  height: 3.24rem;
+  border-radius: 1.44rem;
+}
+.brandmark--sm .brandmark__monogram {
+  font-size: 1.35rem;
+}
+.brandmark--sm .brandmark__name {
+  font-size: 1rem;
+  letter-spacing: -0.005em;
+}
+
+.brandmark--lg {
+  gap: 0.75rem;
+}
+.brandmark--lg .brandmark__slot {
+  width: 4.32rem;
+  height: 4.32rem;
+  border-radius: 1.66rem;
+}
+.brandmark--lg .brandmark__monogram {
+  font-size: 1.8rem;
+}
+.brandmark--lg .brandmark__name {
+  font-size: 1.875rem;
+  letter-spacing: -0.02em;
+}
+
+/* ── tones ─────────────────────────────────────────────────────────────────
+   Not the same colours dimmed. On dark the monogram takes signal-200, NOT signal-300: the chrome
+   uses --bg-harbor-mesh, whose origin is `at 0% 0%`, so the brand row sits on the LIT corner
+   (harbor-800) rather than the deep tone. Against that, signal-300 measures 3.81:1 and signal-200
+   measures 4.82:1. RatesApp shipped 300 because it was verified against harbor-950 — the wrong end
+   of its own gradient. */
+.brandmark--dark .brandmark__slot {
+  background-color: rgb(var(--c-signal-400) / 0.16);
+}
+.brandmark--dark .brandmark__monogram {
+  color: rgb(var(--c-signal-200));
+}
+.brandmark--dark .brandmark__name {
+  color: #fff;
+}
+.brandmark--dark .brandmark__dot {
+  color: rgb(var(--c-signal-400));
+}
+
+/* Kept for future light placements — the sidebar panels below the cap, or a printed view. */
+.brandmark--light .brandmark__slot {
+  background-color: rgb(var(--c-signal-500) / 0.08);
+}
+.brandmark--light .brandmark__monogram {
+  color: rgb(var(--c-signal-600));
+}
+.brandmark--light .brandmark__name {
+  color: rgb(var(--c-harbor-950));
+}
+.brandmark--light .brandmark__dot {
+  color: rgb(var(--c-signal-600));
+}

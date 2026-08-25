@@ -32,3 +32,78 @@ body {
 .sidebar .value {
   font-variant-numeric: tabular-nums;
 }
+
+/*
+  THE LOGOTYPE FACE, and nothing else in the interface uses it.
+
+  A product name set in the UI face at UI weight reads as a label rather than an identity. Fraunces
+  is a soft serif with real SOFT and WONK axes, built to feel hand-cut, and it holds that warmth at
+  16px. Same token name in all four modules so the lockup stays copy-paste portable.
+
+  This is the ONE token that lives outside the skin, and deliberately: the skins redefine
+  --font-display as four different faces, and the logotype must not change typeface when a theme
+  changes. It sits here precisely because a skin cannot reach it.
+*/
+:root {
+  --font-logo: 'Fraunces', ui-serif, Georgia, serif;
+}
+
+/* ── the gate atmosphere ───────────────────────────────────────────────────
+   The recipe the other three modules use behind sign-in and loading: a radial ground, a film grain,
+   a faint chart grid, and a sweeping bar. Every layer reads a token that linen.css already defines,
+   so porting it here was structure only — no new colour, no image request.
+
+   Supabase Auth is planned for this module but unbuilt (CLAUDE.md §13). The loading screen uses the
+   same surface today, so the gate lands on a designed screen rather than being designed twice.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.ground {
+  background-image: var(--bg-harbor-mesh);
+}
+
+/* Graph paper, barely there. ::after so the host keeps its own children. */
+.ground-grid::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: var(--bg-chart-grid);
+  background-size: 28px 28px;
+  opacity: 0.5;
+}
+
+.grain::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: var(--grain);
+  background-size: 160px 160px;
+  opacity: var(--grain-opacity);
+  mix-blend-mode: overlay;
+}
+
+/* The loading bar. Travels past its own width so the rail is empty between passes. */
+@keyframes sweep {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(420%);
+  }
+}
+
+.animate-sweep {
+  animation: sweep 1.3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* A bar shuttling forever is exactly what this setting exists to stop. It stays VISIBLE and
+     still: the screen should still read as busy rather than broken, which a disappearing
+     indicator would. Matches the guard in the other three modules. */
+  .animate-sweep {
+    animation: none;
+    transform: translateX(150%);
+    width: 100%;
+  }
+}
