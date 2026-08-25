@@ -1,14 +1,14 @@
 /*
   The app's identity lockup — icon slot and wordmark.
 
-  ONE STRUCTURE ACROSS THE ESTATE. Rates, Schedules, Planner and Inbound carry the same two parts in
+  ONE STRUCTURE ACROSS THE ESTATE. Rates, Schedules, Planner and INBSHIPS carry the same two parts in
   the same proportions and differ only in their accent. The other three express this in Tailwind
   utilities; this module has no Tailwind, so it is written out here. THE NUMBERS ARE THE CONTRACT,
   not the class names — 3.24rem / 1.44rem / 0.625rem / 1rem are the same values those utilities
   resolve to, and they are what keeps the mark pinned when you switch tabs.
 
   ── Colour needs no decisions here ───────────────────────────────────────────────────────────────
-  Inbound overrides the `signal-*` ramp in accent-inbound.css rather than inventing token names, so
+  INBSHIPS overrides the `signal-*` ramp in accent-inbound.css rather than inventing token names, so
   this file reads `--c-signal-*` and gets transit violet, while the identical rules in RatesApp get
   terracotta. That is the design system working: the invariants carry the family, the accent carries
   the module.
@@ -82,7 +82,11 @@
 }
 .brandmark--sm .brandmark__name {
   font-size: 1rem;
-  letter-spacing: -0.005em;
+  /* POSITIVE TRACKING, against the family default of -0.005em, because this wordmark is all-caps.
+     The negative value is tuned for mixed case, where lowercase letters bring their own rhythm.
+     Capitals have flat sidebearings and set tight by nature; pulling them closer is the classic
+     way to make a caps logotype look cramped. See DESIGN.md, the brand lockup. */
+  letter-spacing: 0.02em;
 }
 
 .brandmark--lg {
@@ -98,7 +102,9 @@
 }
 .brandmark--lg .brandmark__name {
   font-size: 1.875rem;
-  letter-spacing: -0.02em;
+  /* Less than the small size needs: tracking is an optical correction, and the larger the type the
+     less of it is required. */
+  letter-spacing: 0.01em;
 }
 
 /* ── tones ─────────────────────────────────────────────────────────────────

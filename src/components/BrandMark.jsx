@@ -14,7 +14,7 @@ import './BrandMark.css'
  */
 
 /** Single source of truth for what this module is called. */
-export const APP_NAME = 'Inbound'
+export const APP_NAME = 'INBSHIPS'
 /** Not rendered in the lockup; the module's description, used for the tab title. */
 export const APP_DESCRIPTOR = 'Ocean Arrivals'
 
