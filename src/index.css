@@ -72,6 +72,19 @@ body {
   opacity: 0.5;
 }
 
+/*
+  CHROME WEARS THE GRID TIGHTER THAN THE GATE DOES — 22px at 60% against 28px at 50%.
+
+  Those are Freight's numbers, and matching them matters more than the values themselves: two dark
+  surfaces in one estate wearing different grids is exactly the kind of difference nobody notices
+  until both are open side by side, which is when it is most annoying to fix. A denser weave on a
+  narrow rail also reads better than the gate spacing, which is tuned for a full screen.
+*/
+.ground-grid--chrome::after {
+  background-size: 22px 22px;
+  opacity: 0.6;
+}
+
 .grain::before {
   content: '';
   position: absolute;

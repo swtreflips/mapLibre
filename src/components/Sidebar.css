@@ -3,7 +3,7 @@
 /*
   THE BRAND CAP — the module's only chrome.
 
-  DESIGN.md: dark is global navigation chrome and nothing else. INBSHIPS had no chrome at all, so
+  DESIGN.md: dark is global navigation chrome and nothing else. Shipments had no chrome at all, so
   the lockup had nowhere to live that did not break that rule — a brand dropped into the light
   panels below would have made a content surface look like navigation.
 
@@ -16,6 +16,7 @@
   beside it. The token is already in the shared skin, so this costs one line.
 */
 .sidebar__cap {
+  position: relative; /* anchors the grain and grid pseudo-elements */
   flex: 0 0 auto;
   height: 4rem;
   display: flex;
@@ -23,6 +24,13 @@
   padding: 0 1rem;
   background-image: var(--bg-harbor-mesh);
   border-bottom: 1px solid rgb(255 255 255 / 0.05);
+}
+
+/* The lockup sits ABOVE the texture. ::after is the cap's last child in paint order, so without
+   this the grid would lie over the mark rather than under it. */
+.sidebar__cap > * {
+  position: relative;
+  z-index: 1;
 }
 
 .sidebar {

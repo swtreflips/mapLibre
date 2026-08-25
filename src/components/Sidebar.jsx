@@ -40,8 +40,9 @@ export default function Sidebar({ shipments, selected }) {
 
   return (
     <aside className="sidebar">
-      {/* The module's only dark surface — see .sidebar__cap */}
-      <div className="sidebar__cap">
+      {/* The module's only dark surface. Mesh, grain and chart grid — the same three layers
+          Freight's rail carries, so the two dark chromes in the estate match. */}
+      <div className="sidebar__cap grain ground-grid ground-grid--chrome">
         <BrandMark tone="dark" />
       </div>
 
