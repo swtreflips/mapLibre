@@ -62,6 +62,10 @@ const GOOGLEISH = {
   roadCase: '#ded9cf',
   labelPrimary: '#3c4043', // Google's primary label grey
   labelSecondary: '#5f6368', // Google's secondary label grey
+  // The vessel hull's outline, from assets/vessel.svg. Lives here as well so the count badge's
+  // ring and numeral share ONE source of truth with the icon they sit on — if the ship's outline
+  // is ever recoloured, the badge follows instead of quietly drifting out of family.
+  vesselOutline: '#086A08',
 }
 
 // Resolved once per call so the map re-reads the skin whenever the style is rebuilt.
@@ -75,6 +79,7 @@ export const mapPalette = () => ({
   labelIntl: GOOGLEISH.labelSecondary,
   dotIntl: GOOGLEISH.labelSecondary,
   dotFill: '#ffffff',
+  vesselOutline: GOOGLEISH.vesselOutline,
   // White, not the water colour: a label can sit over blue sea or off-white land, and a halo
   // tinted for one of them smudges against the other.
   labelHalo: '#ffffff',

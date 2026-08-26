@@ -1,0 +1,52 @@
+<!--
+  Vessel marker — the MASTER for public/icons/nautical*.png.
+
+  This is source art. It is NOT served: `npm run build:icons` rasterises it into public/icons/,
+  and only the baked PNGs ship. Edit here, never the PNGs — the PNGs used to be the master and
+  that is exactly how the contour rotted (see below).
+
+  GEOMETRY. A vessel dart: pointed bow, straight flanks, concave notched stern. Points, in order:
+      62,27.5     bow apex    - points EAST at icon-rotate 0, which is why MapView writes
+                                `rotation = bearing - 90` into each feature
+       4,4        stern top
+      13.2,27.5   stern notch - concave, bulges back toward the bow
+       4,51       stern bottom
+
+  SYMMETRY AXIS MUST EQUAL THE CANVAS CENTRE, i.e. y = height/2 = 27.5. Not 27, not 28.
+
+  The first version of this file put the axis at y=27 on a 55-tall canvas whose centre is 27.5.
+  The shape was internally perfect — its rows mirrored each other exactly — but it sat half a
+  pixel high, giving 2px of clearance above the stern and 3px below. MapLibre rotates about the
+  CANVAS centre, so the hull orbited that half-pixel instead of spinning on its own axis, and the
+  two stern flaps read as lopsided. build-icons.mjs now asserts this; see the check there.
+
+  With the axis at 27.5 on 55 rows, row 27 is the self-mirroring middle row and row r pairs with
+  row 54-r. Stroke overhang is 1px each side, so polygon 4..62 x 4..51 gives ink 3..63 x 3..52 —
+  60x49 of ink centred in 66x55, with a clean 3px margin all round.
+
+  THE 3px MARGIN IS LOad-BEARING. viewBox is 66x55 but the ink is only 60x49, leaving ~3px clear
+  on every side. MapLibre packs icons into a sprite atlas; with ink flush to the canvas edge,
+  bilinear sampling under `icon-rotate` reaches past the icon and drags in whatever neighbours it
+  in the atlas. That was one of four causes of the torn edge. Do not "tighten" this viewBox.
+
+  Because the canvas grew 60x49 -> 66x55 while the ink did not, the ship still renders at
+  30x24.5 CSS px at icon-size 1.0 with pixelRatio 2 — same size on screen as before, and the
+  rotation centre is unmoved.
+
+  STROKE-WIDTH 2 IS A FLOOR, NOT A STYLE. At pixelRatio 2 it lands at 1 CSS px. The previous art
+  had 1px on the stern and 2-3px on the diagonals; the 1px edge fell below a device pixel once
+  icon-size dropped to 0.6 and flickered in and out as the icon turned. Uniform is what stops the
+  shimmer. If it still reads thin at the lowest zoom, raise this to 3 — do not scale the icon.
+
+  ROUND LINEJOIN: the bow is acute, so a miter join throws a long spike off the point.
+
+  Colours here are the DEFAULT variant. tools/build-icons.mjs swaps these two hex values to
+  produce each variant, so keep them as literal hex — no CSS variables, no classes.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="66" height="55" viewBox="0 0 66 55">
+  <polygon points="62,27.5 4,4 13.2,27.5 4,51"
+           fill="#90EE90"
+           stroke="#086A08"
+           stroke-width="2"
+           stroke-linejoin="round" />
+</svg>

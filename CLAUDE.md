@@ -273,15 +273,40 @@ port don't fully stack. Implemented in [MapView.jsx](src/components/MapView.jsx)
 Future containers at the POL are **deferred** (not yet implemented).
 Tunables: `CONTAINER_RING_MIN_PX` / `CONTAINER_RING_MAX_PX`.
 
-### 5.5 Icon sizing (pre-baked PNGs + zoom-interpolated `icon-size`)
-Icons are **pre-downscaled with Pillow/LANCZOS** from the originals and registered with
-`map.addImage(..., { pixelRatio: 2 })`. This matters: letting the GPU minify the full-res PNGs
-(980/500px) down to ~20–40px shattered the thin outlines. Bake near display size instead, then
-size with a zoom-interpolated `icon-size` expression on the layer (re-bake the PNG, don't just
-change `icon-size`, if you need it crisp at a very different size):
-- **Ships** `60×49` — length squashed from native 980×606 so the ship reads shorter (not
-  pointy). `icon-size` stops (zoom 2→0.6, 6→1.0, 10→1.4) ⇒ ~15px tall zoomed out.
-- **Containers** `80×80` square. `icon-size` stops (zoom 2→0.6, 6→0.8, 10→1.1).
+### 5.5 Icon sizing (baked PNGs + zoom-interpolated `icon-size`)
+Icons are baked near display size and registered with `map.addImage(..., { pixelRatio: 2 })`, then
+sized by a zoom-interpolated `icon-size` on the layer. Re-bake the source if you need it crisp at
+a very different size — don't just change `icon-size`.
+
+- **Ships** — **two size tiers**, both from [assets/vessel.svg](assets/vessel.svg) via
+  `npm run build:icons`, swapped by an `icon-image` step at **z4**:
+  - `nautical*2.png` — `66×55`, 2px stroke, `pixelRatio: 2`. Used z4 and above.
+  - `nautical*2-sm.png` — `33×28`, 3.4 stroke, `pixelRatio: 1`. Used below z4.
+
+  Both report **~33 CSS px logical width**, so one `icon-size` expression drives both and the
+  switch changes outline *weight*, never size. `icon-size` stops (2→0.6, 6→1.0, 10→1.4).
+- **Containers** `80×80` square, still Pillow-baked. `icon-size` stops (2→0.6, 6→0.8, 10→1.1).
+
+**The ships were rebuilt from vector because a raster master rotted the contour.** The old art was
+a 980×606 original LANCZOS-shrunk to 60×49, and by the time it shipped the intended `#086A08`
+outline existed in **zero pixels** — replaced by a 175-colour gradient, 1px on the stern and 2–3px
+on the diagonals with irregular stair-stepping. Under `icon-rotate` that read as a vsync tear.
+Three rules keep it fixed:
+
+1. **The SVG is the master.** Never edit the PNGs; edit `assets/vessel.svg` and re-bake.
+2. **Rasterise once, at target size.** Don't render big and downscale — analytic antialiasing
+   beats resampling, and resampling is what caused the fault.
+3. **Keep the ~3px transparent margin and the 2px stroke floor.** Both are load-bearing; §10.
+
+**Why two tiers, measured on the real renderer.** MapLibre scales sprites with GPU bilinear
+filtering and **no mipmaps**, so a single 66px bitmap is minified hard at low zoom. At
+`devicePixelRatio 2, z1.5` it drew at ~40 device px, putting the 2px stroke at **0.94 device px** —
+the dark contour survived on barely half the silhouette, in *different* places at each heading, so
+it crawled as ships turned. Baking a second bitmap near its display size (so the GPU barely
+resamples) with a proportionally heavier stroke took the outline from 172 to **326 device pixels**
+at the same peak darkness. Note a LANCZOS simulation said 2× displays would be fine; they are not
+— **measure this on the real renderer at the real `devicePixelRatio`, not in Pillow.**
+
 Asset files/colors are in §10.
 
 ## 6. Vessel positions — computed once per refresh (no animation)
@@ -380,8 +405,9 @@ it is obsolete here.
 
 ## 10. Icon assets
 
-Icons live in [public/icons/](public/icons/), **pre-baked with Pillow** from the originals
-(§5.5) and registered with `addImage(..., { pixelRatio: 2 })`:
+Icons live in [public/icons/](public/icons/), baked from source art (§5.5) and registered with
+`addImage(..., { pixelRatio: 2 })`. **The ships come from [assets/vessel.svg](assets/vessel.svg)
+via `npm run build:icons`; the containers are still Pillow-baked rasters.**
 
 | image name | file | used for | selected when |
 |---|---|---|---|
@@ -391,10 +417,20 @@ Icons live in [public/icons/](public/icons/), **pre-baked with Pillow** from the
 | `containerGreen` | `greenContainer.png` | arrived container | appointment set |
 | `containerRed` | `redContainer.png` | arrived container | > 3 days at CY |
 
-- **Default ship = MarineTraffic green.** `nauticalDefault2.png` is `nauticalWhite2.png`
-  recolored (Pillow `colorize`: dark-green outline `(8,106,8)` + light-green fill
-  `(144,238,144)`, sampled from a MarineTraffic marker) and squashed to 60×49. `nauticalWhite2`
-  stays in the repo as the recolor source (unused at runtime).
+- **Ships: edit [assets/vessel.svg](assets/vessel.svg), then `npm run build:icons`.** One polygon
+  (bow apex, straight flanks, concave notched stern) drives both variants; the bake swaps two
+  literal hex values, so the two can never drift out of shape. Colours are MarineTraffic-sampled:
+  outline `#086A08` on both, fill `#90EE90` (default) / `#23B14D` (arrival notice).
+  - **The ~3px transparent margin is load-bearing.** MapLibre packs icons into a sprite atlas;
+    with ink flush to the canvas edge, bilinear sampling under `icon-rotate` reaches past the
+    icon and drags in its atlas neighbours. Don't tighten the viewBox.
+  - **`stroke-width: 2` is a floor, not a style.** At `pixelRatio: 2` it lands at 1 CSS px. The
+    old 1px stern edge fell below a device pixel once `icon-size` dropped to 0.6 and flickered as
+    the icon turned. If it reads thin at the lowest zoom, raise the stroke — don't scale the icon.
+- `nauticalWhite2.png` is the **obsolete** recolour source from the raster era; the SVG replaced
+  it and nothing reads it at runtime.
+- `exemplar.png` is a **MarineTraffic screenshot**, not an icon — 0% transparency, opaque
+  `(244,244,245)` background. Visual reference only; nothing can be traced from its alpha.
 - Register each PNG with `map.loadImage('/icons/<file>')` + `map.addImage(name, img, {
   pixelRatio: 2 })` before the symbol layers, then select per feature via
   `"icon-image": ["match", ["get", "color"], …]`.
