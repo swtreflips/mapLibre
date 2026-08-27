@@ -82,20 +82,19 @@ const CARD_BASE_PX = 64
 // and the bottom is pulled down to 0.45, which puts the card at 28.8 CSS px the moment it appears.
 // That is not a guessed number: it is what the old single-stack card measured at the same zoom, so
 // the tri-arm card at its smallest costs no more screen than the thing it replaced.
-// FLAT ON PURPOSE — the zoom ramp is switched off, not deleted.
+// A shallow ramp across the band where cards first appear, then flat.
 //
-// 35 px at z3 read as too small, so this reverts to a constant 64 px: exactly what was on screen
-// before the centring fix, since --card-scale was inert then (see syncPortCards). Running it flat
-// isolates the two changes, so what you judge now is the centring alone.
+// The low stop sits at FIRST_LABEL_ZOOM because that is where a card can first exist at all —
+// below it a port draws a bubble, which is on its own curve. The top stop is where full size
+// starts looking right; above it the table clamps, so 64 px holds all the way to z17.
 //
-// The trade it re-accepts: the arms scale with the card, so at full size a single-status pile sits
-// ~265 km from its port at z3 (Boston is 306 km from New York). That is well in from the 592 km it
-// was, but it is the reason the ramp existed. Put values back in the middle stop to bring it back —
-// or, to keep the boxes big AND the piles tight, ramp ARM_R in portCard.js instead, which pulls the
-// arms in without shrinking the containers.
+// Deliberately shallow. An earlier pass ran 0.55 at z3 and the boxes stopped reading as
+// containers; flat 1.0 read fine but was heavier than it needed to be at the bottom. 0.8 is the
+// middle, and it also pulls the arms in with it — a single-status pile sits ~212 km from its port
+// at z3 rather than ~265.
 const CARD_SCALE_STOPS = [
-  [3, 1.0], // 64 px
-  [10, 1.0], // 64 px
+  [3, 0.8], // 51 px — cards appear
+  [4.55, 1.0], // 64 px, and flat from here up
 ]
 // Linear interpolation over a [zoom, value] stop table, clamped at both ends — the same thing
 // MapLibre's ['interpolate', ['linear'], ['zoom'], ...] does internally. Shared so the DEV readout

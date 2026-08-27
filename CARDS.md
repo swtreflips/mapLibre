@@ -148,23 +148,18 @@ with no manual maths.
 - **`CARD_BASE_PX = 64`.** The tri-arm card is **~2× wider** than the single mixed stack it
   replaced (three 2-wide footprints side by side), and the square viewBox fits by width — so at the
   old 44 the boxes came out half-size.
-- **`CARD_SCALE_STOPS` is currently FLAT at 1.0** — a constant 64 CSS px at every zoom. The ramp
-  is switched off, not removed: 35 px at z3 read as too small, and running it flat reproduces
-  exactly what was on screen before the centring fix (`--card-scale` was inert then — see the trap
-  below), so what is being judged now is the centring alone.
+- **`CARD_SCALE_STOPS`: z3 → 0.8, z4.55 → 1.0, flat above.** 51 CSS px where cards first appear,
+  64 px from z4.55 all the way to z17. The low stop sits at `FIRST_LABEL_ZOOM` because that is
+  where a card can first exist — below it a port draws a bubble, on its own curve.
 
-  The trade it re-accepts: **the arms scale with the card**, so at full size a single-status pile
-  sits ~265 km from its port at z3 — in from the 592 km it was, but the reason a ramp existed. Two
-  different levers if it needs pulling back:
+  **Deliberately shallow.** An earlier pass ran 0.55 at z3 and the boxes stopped reading as
+  containers; flat 1.0 read fine but was heavier than it needed to be at the bottom. Because
+  **the arms scale with the card**, the ramp also tightens the spread where it matters most: a
+  single-status pile sits ~212 km from its port at z3 rather than ~265.
 
-  | lever | effect |
-  |---|---|
-  | `CARD_SCALE_STOPS` middle stop | shrinks the whole card — piles tighten, boxes shrink with them |
-  | `ARM_R` in portCard.js, ramped by zoom | pulls the arms in **without** shrinking the containers |
-
-  The second is the one to reach for if the boxes must stay legible; it costs regenerating the SVG
-  on zoom steps rather than only on `zoomend`. The curve starts at `FIRST_LABEL_ZOOM`, where cards
-  start existing — below it a port draws a bubble, which opts out of this scale.
+  If the piles ever need to tighten further *without* the boxes shrinking, the lever is `ARM_R` in
+  portCard.js ramped by zoom — it pulls the arms in and leaves the containers full size. That costs
+  regenerating the SVG on zoom steps rather than only on `zoomend`, which is why it is not wired.
 
 ### Two elements, and why
 
