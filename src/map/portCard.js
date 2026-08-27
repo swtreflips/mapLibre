@@ -236,10 +236,22 @@ export function portCardSvg(statuses, size = 72) {
 // NEUTRAL on purpose, and a true neutral (R=G=B): the bubble aggregates all three statuses, so any
 // tint would read as one of them. Warm greys also read reddish at this size to a colour-blind eye
 // (CLAUDE.md §15).
-const BUBBLE_FILL = '#3A3A3A'
-const BUBBLE_RING = 'rgba(255, 255, 255, 0.92)' // separates the disc from dark water / land alike
-const BUBBLE_RING_W = 1.5
-const BUBBLE_TEXT = '#FFFFFF'
+//
+// A WHITE disc, not a dark one. A dark slug carried far more visual weight than a count deserves —
+// it read as the loudest thing on the map when it is only a summary. White sits in the same family
+// as the label halos and reads as paper laid on the map.
+//
+// The ring is what makes white viable, and is not decoration: land is #f2efe9, so a white fill has
+// almost no edge against it — the ring supplies the whole silhouette there, while over #aadaff
+// water the fill does it alone. Both cases were checked before choosing.
+//
+// A translucent fill was the other candidate and was rejected: it takes on whatever is beneath it,
+// so the disc goes muddy over water and the numeral loses contrast exactly where the basemap is
+// busiest. Solid reads cleaner at every size.
+const BUBBLE_FILL = '#FFFFFF'
+const BUBBLE_RING = '#6E6E6E'
+const BUBBLE_RING_W = 1.25
+const BUBBLE_TEXT = '#242424' // ~16:1 on white — the numeral is the data, so it gets the contrast
 
 // A gentle sqrt ramp, not a linear one: area tracks count, which is how people read circles. The
 // range is deliberately narrow — this is a legibility aid for two-digit numerals at world zoom, not

@@ -231,8 +231,18 @@ The two questions are genuinely different. Zoomed out: *where is the volume — 
 A total answers that; a status breakdown at 6 px per box does not. Zoomed in: *what is going on at
 this port?* — several blue and a couple of red says a batch just landed and a few have been sitting
 without an appointment. So the bubble carries **no status colour at all**, deliberately, and is a
-true neutral (R=G=B): the bubble aggregates all three statuses, so any tint would read as one of
-them, and warm greys read reddish at this size to a colour-blind eye (CLAUDE.md §15).
+true neutral (R=G=B): it aggregates all three statuses, so any tint would read as one of them, and
+warm greys read reddish at this size to a colour-blind eye (CLAUDE.md §15).
+
+**A white disc, not a dark one.** A dark slug carried far more visual weight than a count deserves —
+it read as the loudest thing on the map when it is only a summary. White sits in the same family as
+the label halos and reads as paper laid on the map.
+
+The **hairline ring is not decoration**, it is what makes white viable: land is `#f2efe9`, so a
+white fill has almost no edge against it and the ring supplies the entire silhouette there, while
+over `#aadaff` water the fill does that job alone. Both were checked side by side before choosing.
+A translucent fill was the other candidate and lost: it takes on whatever is beneath it, so the disc
+goes muddy over water and the numeral loses contrast exactly where the basemap is busiest.
 
 Bubble radius follows a gentle `sqrt` ramp (10–16 px, saturating at 25 containers) so area tracks
 count the way people read circles. The range is deliberately narrow — it is a legibility aid for

@@ -61,7 +61,10 @@
   /* The numerals are drawn by the browser, not from the map's baked SDF glyphs, so this is the
      skin's own typeface rather than the Noto Sans the labels use (CLAUDE.md §15). */
   font-family: var(--font-sans);
-  filter: drop-shadow(0 1px 2px rgb(18 28 22 / 0.35));
+  /* Lighter than the dark disc this replaced needed. On a white bubble the ring already carries
+     the silhouette, so the shadow only has to lift it off the land — at 0.35 it read as a heavy
+     object rather than paper. */
+  filter: drop-shadow(0 1px 2px rgb(18 28 22 / 0.22));
 }
 
 /* DEV-only zoom readout (MapView, guarded by import.meta.env.DEV). Bottom-LEFT because the two
