@@ -147,12 +147,19 @@ with no manual maths.
   and shrinks with the viewBox, so a tall stack or a low zoom drives it under one device pixel and
   the edges break up — the exact failure the vessel hull hit (CLAUDE.md §5.5). With it, the stroke
   is constant in render space at any stack height.
-- **`CARD_BASE_PX = 64`.** Cards are DOM markers, so they do not scale with the map like the
-  sprites they replaced; `--card-scale` on `.map-container` is driven from the map's `zoom` event
-  on the sprites' old curve (z2→0.6, z6→0.8, z10→1.1). The tri-arm card is **~2× wider** than the
-  single mixed stack it replaced (three 2-wide footprints side by side), and the square viewBox
-  fits by width — so at the old 44 the boxes came out half-size. 64 splits the difference. This is
-  the lever if cards feel heavy at world zoom.
+- **`CARD_BASE_PX = 64`.** The tri-arm card is **~2× wider** than the single mixed stack it
+  replaced (three 2-wide footprints side by side), and the square viewBox fits by width — so at the
+  old 44 the boxes came out half-size.
+- **`CARD_SCALE_STOPS`: z3→0.45, z6→0.75, z10→1.1.** Cards are DOM markers, so they do not scale
+  with the map like the sprites they replaced; `--card-scale` on `.map-container` is driven from the
+  map's `zoom` event. The curve starts at `FIRST_LABEL_ZOOM`, where cards start existing — below it
+  a port draws a bubble, which opts out of this scale, so a stop further down describes nothing.
+
+  It is **weighted toward the bottom**: that extra width lands hardest where there is least room
+  for it. The top is unchanged from the sprites' old curve (1.1 at z10, where a card sits over one
+  metro), and the bottom pulls down to 28.8 CSS px the moment a card appears — which is what the
+  old single-stack card measured at the same zoom, so the tri-arm card at its smallest costs no
+  more screen than the thing it replaced. Net: −31% at z3, −13% at z5, unchanged by z10.
 - **`xMidYMax` + `anchor: 'bottom'` puts the card's baseline on the port, not its centre.** So the
   arms sit above and around the port rather than radiating from it symmetrically — a red-only pile
   reads as displaced NE. Anchoring the *pie centre* on the port would be truer to the model, but it

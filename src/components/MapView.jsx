@@ -69,17 +69,28 @@ const PLACE_ZOOM_FILTER = ['<=', ['get', 'minzoom'], ['zoom']]
 // it a card that reads well at z6 dominates the world view.
 //
 // Sizing history: the container sprites this replaced were 40 CSS px on the same curve, and at 72
-// the card spanned ~1,200 km at world zoom and swallowed the northeast US. The tri-arm card is ~2x wider than the single mixed stack it replaced (three 2-wide footprints
-// side by side instead of one), and the square viewBox fits by width — so at the old 44 the boxes
-// came out half-size. 64 splits the difference: boxes ~73% of the old size, card ~46% wider on
-// screen. This is the lever if cards feel too heavy at world zoom.
+// the card spanned ~1,200 km at world zoom and swallowed the northeast US. The tri-arm card is ~2x
+// wider than the single mixed stack it replaced (three 2-wide footprints side by side instead of
+// one), and the square viewBox fits by width — so at the old 44 the boxes came out half-size. 64
+// splits the difference: boxes ~73% of the old size, card ~46% wider on screen.
 const CARD_BASE_PX = 64
+
+// The curve now STARTS at the zoom cards start existing at (FIRST_LABEL_ZOOM = 3); below that a
+// port draws a bubble, which opts out of this scale entirely, so the old z2 stop was describing
+// something that no longer renders.
+//
+// Rebalanced because that extra width lands hardest where there is least room for it. The top of
+// the curve is UNCHANGED — 1.1 at z10, where a card sits over a single metro and has the space —
+// and the bottom is pulled down to 0.45, which puts the card at 28.8 CSS px the moment it appears.
+// That is not a guessed number: it is what the old single-stack card measured at the same zoom, so
+// the tri-arm card at its smallest costs no more screen than the thing it replaced.
+const CARD_SCALE_STOPS = [
+  [3, 0.45], // 28.8 px — cards appear
+  [6, 0.75], // 48 px
+  [10, 1.1], // 70 px
+]
 const cardScale = (zoom) => {
-  const stops = [
-    [2, 0.6],
-    [6, 0.8],
-    [10, 1.1],
-  ]
+  const stops = CARD_SCALE_STOPS
   if (zoom <= stops[0][0]) return stops[0][1]
   if (zoom >= stops.at(-1)[0]) return stops.at(-1)[1]
   for (let i = 1; i < stops.length; i += 1) {
