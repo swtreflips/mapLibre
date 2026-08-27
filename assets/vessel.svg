@@ -40,12 +40,20 @@
 
   ROUND LINEJOIN: the bow is acute, so a miter join throws a long spike off the point.
 
-  Colours here are the DEFAULT variant. tools/build-icons.mjs swaps these two hex values to
-  produce each variant, so keep them as literal hex — no CSS variables, no classes.
+  Colours here are the DEFAULT variant — AMBER, meaning no arrival notice yet. The other variant
+  is green, meaning one has been received. Two states, two colours, nothing else: the hull says
+  whether the far end has been notified, and the numeral trailing it says how many containers.
+
+  They are separated by LIGHTNESS as well as hue (amber L*~81, green L*~63), so which is which
+  survives without relying on the red-green axis. Keep that gap if you retune either.
+
+  tools/build-icons.mjs swaps these two hex values to produce each variant, so keep them as
+  literal hex — no CSS variables, no classes. BASE_FILL / BASE_STROKE there must match these
+  exactly; the script throws if they drift.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="66" height="55" viewBox="0 0 66 55">
   <polygon points="62,27.5 4,4 13.2,27.5 4,51"
-           fill="#90EE90"
+           fill="#FFC220"
            stroke="#086A08"
            stroke-width="2"
            stroke-linejoin="round" />

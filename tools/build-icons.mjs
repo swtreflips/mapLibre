@@ -26,7 +26,7 @@ const OUT = join(ROOT, 'public', 'icons')
 
 // The literal hex values in assets/vessel.svg, and what each variant replaces them with.
 // Keeping the geometry in ONE file means the variants can never drift out of shape.
-const BASE_FILL = '#90EE90'
+const BASE_FILL = '#FFC220'
 const BASE_STROKE = '#086A08'
 const BASE_STROKE_WIDTH = 2
 
@@ -50,11 +50,19 @@ const TIERS = [
   { suffix: '-sm', width: 33, height: 28, strokeWidth: 3.4, pixelRatio: 1, use: 'below z4' },
 ]
 
+// TWO STATES, TWO COLOURS. Amber = no arrival notice yet, green = one received. The default was
+// previously a pale green, which made both variants green and left the difference resting on a
+// lightness step alone — the thing it is meant to signal was the thing hardest to see.
+//
+// Separated by LIGHTNESS as well as hue (amber L*~81, green L*~63), so the pair does not depend on
+// the red-green axis to be told apart, and the polarity is unchanged: the lighter hull is still
+// the one with no notice.
+//
 // Both variants share the dark stroke on purpose — same contour, different hull — so they read as
-// one family. Note nauticalGreen2 previously had no real outline at all (a flat #23B14D shape),
-// so it changes slightly more than the default does.
+// one family, and so the count numeral (which uses that same colour, held constant across both)
+// stays true to the icon it trails. On amber it reads as a dark olive edge.
 const VARIANTS = [
-  { file: 'nauticalDefault2.png', fill: '#90EE90', stroke: '#086A08', note: 'arrival_notice != yes' },
+  { file: 'nauticalDefault2.png', fill: '#FFC220', stroke: '#086A08', note: 'arrival_notice != yes' },
   { file: 'nauticalGreen2.png', fill: '#23B14D', stroke: '#086A08', note: 'arrival_notice = yes' },
 ]
 

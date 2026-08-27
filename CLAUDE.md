@@ -396,7 +396,7 @@ Decide state from today's local-midnight date:
 |---|---|---|---|---|
 | **Future** | `startDate > today` | `polCoords` + spiral offset | container | blue |
 | **Arrived** | `actual_portdate` set and `≤ today` | `podCoords` + spiral offset | container | `appointment_date` set → **green**; else days-at-CY `> 3` → **red**; else **blue** |
-| **En route** | otherwise | interpolated `vesselPos` (estimated, static between refreshes) | ship | **any** container aboard with `arrival_notice === "yes"` → **green**; else default |
+| **En route** | otherwise | interpolated `vesselPos` (estimated, static between refreshes) | ship | **any** container aboard with `arrival_notice === "yes"` → **green**; else **amber** |
 
 The hull is one object holding many containers, so arrival notice is an *any* over the group — the
 per-container breakdown is what the tray is for (§8).
@@ -490,13 +490,22 @@ isometric SVG card (§5.4).**
 
 | image name | file | used for | selected when |
 |---|---|---|---|
-| `shipDefault` | `nauticalDefault2.png` | en-route ship, default | `arrival_notice ≠ yes` |
-| `shipGreen` | `nauticalGreen2.png` | en-route ship | `arrival_notice = yes` |
+| `shipDefault` | `nauticalDefault2.png` | en-route ship, **amber** | `arrival_notice ≠ yes` |
+| `shipGreen` | `nauticalGreen2.png` | en-route ship, **green** | `arrival_notice = yes` |
 
 - **Ships: edit [assets/vessel.svg](assets/vessel.svg), then `npm run build:icons`.** One polygon
   (bow apex, straight flanks, concave notched stern) drives both variants; the bake swaps two
-  literal hex values, so the two can never drift out of shape. Colours are MarineTraffic-sampled:
-  outline `#086A08` on both, fill `#90EE90` (default) / `#23B14D` (arrival notice).
+  literal hex values, so the two can never drift out of shape. Outline `#086A08` on **both** — same
+  contour, different hull, so they read as one family and the count numeral (which uses that colour,
+  held constant across variants) stays true to the icon it trails. On amber it reads as a dark olive
+  edge.
+
+  **Two states, two colours: `#FFC220` amber = no arrival notice, `#23B14D` green = one received.**
+  The default was previously a pale green, which made *both* variants green and left the whole
+  signal resting on a lightness step — the thing the colour exists to say was the thing hardest to
+  see. The pair is still separated by lightness as well as hue (amber L*≈81, green L*≈63), so it
+  does not lean on the red-green axis, and the polarity is unchanged: the lighter hull is the one
+  with no notice. Keep that gap if you retune either.
   - **The ~3px transparent margin is load-bearing.** MapLibre packs icons into a sprite atlas;
     with ink flush to the canvas edge, bilinear sampling under `icon-rotate` reaches past the
     icon and drags in its atlas neighbours. Don't tighten the viewBox.
