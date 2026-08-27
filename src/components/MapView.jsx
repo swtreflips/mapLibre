@@ -84,12 +84,19 @@ const CARD_BASE_PX = 64
 // and the bottom is pulled down to 0.45, which puts the card at 28.8 CSS px the moment it appears.
 // That is not a guessed number: it is what the old single-stack card measured at the same zoom, so
 // the tri-arm card at its smallest costs no more screen than the thing it replaced.
-// The top lands on 64 px, the size judged right at zoomed-in levels. It reads as the identity stop
-// for a reason: for several iterations this transform was inert (see syncPortCards) and every card
-// drew at a flat CARD_BASE_PX, so 64 px at high zoom is the size that was actually being approved.
+// FLAT ON PURPOSE — the zoom ramp is switched off, not deleted.
+//
+// 35 px at z3 read as too small, so this reverts to a constant 64 px: exactly what was on screen
+// before the centring fix, since --card-scale was inert then (see syncPortCards). Running it flat
+// isolates the two changes, so what you judge now is the centring alone.
+//
+// The trade it re-accepts: the arms scale with the card, so at full size a single-status pile sits
+// ~265 km from its port at z3 (Boston is 306 km from New York). That is well in from the 592 km it
+// was, but it is the reason the ramp existed. Put values back in the middle stop to bring it back —
+// or, to keep the boxes big AND the piles tight, ramp ARM_R in portCard.js instead, which pulls the
+// arms in without shrinking the containers.
 const CARD_SCALE_STOPS = [
-  [3, 0.55], // 35 px — cards appear
-  [6, 0.75], // 48 px
+  [3, 1.0], // 64 px
   [10, 1.0], // 64 px
 ]
 const cardScale = (zoom) => {

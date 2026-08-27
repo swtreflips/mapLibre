@@ -148,10 +148,23 @@ with no manual maths.
 - **`CARD_BASE_PX = 64`.** The tri-arm card is **~2× wider** than the single mixed stack it
   replaced (three 2-wide footprints side by side), and the square viewBox fits by width — so at the
   old 44 the boxes came out half-size.
-- **`CARD_SCALE_STOPS`: z3→0.55, z6→0.75, z10→1.0** — 35 / 48 / 64 CSS px. The curve starts at
-  `FIRST_LABEL_ZOOM`, where cards start existing; below it a port draws a bubble, which opts out of
-  this scale, so a stop further down would describe nothing. The top reads as an identity stop for a
-  reason — see the trap below.
+- **`CARD_SCALE_STOPS` is currently FLAT at 1.0** — a constant 64 CSS px at every zoom. The ramp
+  is switched off, not removed: 35 px at z3 read as too small, and running it flat reproduces
+  exactly what was on screen before the centring fix (`--card-scale` was inert then — see the trap
+  below), so what is being judged now is the centring alone.
+
+  The trade it re-accepts: **the arms scale with the card**, so at full size a single-status pile
+  sits ~265 km from its port at z3 — in from the 592 km it was, but the reason a ramp existed. Two
+  different levers if it needs pulling back:
+
+  | lever | effect |
+  |---|---|
+  | `CARD_SCALE_STOPS` middle stop | shrinks the whole card — piles tighten, boxes shrink with them |
+  | `ARM_R` in portCard.js, ramped by zoom | pulls the arms in **without** shrinking the containers |
+
+  The second is the one to reach for if the boxes must stay legible; it costs regenerating the SVG
+  on zoom steps rather than only on `zoomend`. The curve starts at `FIRST_LABEL_ZOOM`, where cards
+  start existing — below it a port draws a bubble, which opts out of this scale.
 
 ### Two elements, and why
 
