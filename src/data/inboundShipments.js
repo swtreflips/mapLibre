@@ -3,6 +3,9 @@
 // dates converted M/D/YYYY -> YYYY-MM-DD, and `route` built as "POL - POD".
 // Later this comes from Supabase (CLAUDE.md §14). Fields not in the CSV are defaulted:
 //   confirmed_carrier: ''   arrival_notice: 'no'
+// `items[].po_number` is INVENTED for the dev fixture — the CSV carries no PO column. It lives on
+// the line item, not the shipment, because one container consolidates several POs and that is
+// where the real column sits (CLAUDE.md §14, `line_items.po_number`).
 // `route` is the join key to the Supabase `routes` table.
 
 // ── Status fixtures ──────────────────────────────────────────────────────────────────
@@ -45,8 +48,8 @@ const inboundShipments = [
     arrival_notice: 'no',
     last_freeday: '2026-06-09',
     items: [
-      { item: 'PECO-FH12717-1/6-A-V3', qty: 49, vendor: 'Goldsun Printing And Packaging Jsc' },
-      { item: 'PECO-FH12717-1/6-A-V3', qty: 1000, vendor: 'Goldsun Printing And Packaging Jsc' },
+      { po_number: 'PO155550', item: 'PECO-FH12717-1/6-A-V3', qty: 49, vendor: 'Goldsun Printing And Packaging Jsc' },
+      { po_number: 'PO155551', item: 'PECO-FH12717-1/6-A-V3', qty: 1000, vendor: 'Goldsun Printing And Packaging Jsc' },
     ],
   },
   {
@@ -68,7 +71,9 @@ const inboundShipments = [
     appointment_date: '',
     arrival_notice: 'no',
     last_freeday: '2026-06-09',
-    items: [{ item: 'TGET-NK8510', qty: 960, vendor: 'Paras Webcoat Pvt Ltd' }],
+    items: [
+      { po_number: 'PO155552', item: 'TGET-NK8510', qty: 960, vendor: 'Paras Webcoat Pvt Ltd' },
+    ],
   },
   {
     shipment: 'INBSHIP3893',
@@ -90,8 +95,8 @@ const inboundShipments = [
     arrival_notice: 'no',
     last_freeday: '',
     items: [
-      { item: 'TCCF-NK10712', qty: 687, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
-      { item: 'TCCF-NK141015', qty: 473, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
+      { po_number: 'PO155553', item: 'TCCF-NK10712', qty: 687, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
+      { po_number: 'PO155554', item: 'TCCF-NK141015', qty: 473, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
     ],
   },
   {
@@ -114,9 +119,9 @@ const inboundShipments = [
     arrival_notice: 'no',
     last_freeday: '',
     items: [
-      { item: 'BLBR-NK13713', qty: 151, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
-      { item: 'PARE-WT10712', qty: 300, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
-      { item: 'DFGR-WT10712', qty: 760, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
+      { po_number: 'PO155555', item: 'BLBR-NK13713', qty: 151, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
+      { po_number: 'PO155556', item: 'PARE-WT10712', qty: 300, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
+      { po_number: 'PO155557', item: 'DFGR-WT10712', qty: 760, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
     ],
   },
   {
@@ -138,7 +143,9 @@ const inboundShipments = [
     appointment_date: '',
     arrival_notice: 'no',
     last_freeday: '',
-    items: [{ item: 'KRSP-NK161118', qty: 749, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' }],
+    items: [
+      { po_number: 'PO155558', item: 'KRSP-NK161118', qty: 749, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
+    ],
   },
   {
     // TEST: BLUE — arrived 2 days ago, no appointment yet. Blue = recently landed, nothing wrong.
@@ -161,7 +168,9 @@ const inboundShipments = [
     appointment_date: '',
     arrival_notice: 'yes',
     last_freeday: daysAhead(3),
-    items: [{ item: 'PECO-FH12717-1/6-A-V3', qty: 640, vendor: 'Goldsun Printing And Packaging Jsc' }],
+    items: [
+      { po_number: 'PO155559', item: 'PECO-FH12717-1/6-A-V3', qty: 640, vendor: 'Goldsun Printing And Packaging Jsc' },
+    ],
   },
   {
     // TEST: GREEN — sitting 6 days but a drayage appointment is booked, so it is handled.
@@ -185,7 +194,9 @@ const inboundShipments = [
     appointment_date: daysAhead(1),
     arrival_notice: 'yes',
     last_freeday: daysAhead(2),
-    items: [{ item: 'TGET-NK8510', qty: 480, vendor: 'Paras Webcoat Pvt Ltd' }],
+    items: [
+      { po_number: 'PO155560', item: 'TGET-NK8510', qty: 480, vendor: 'Paras Webcoat Pvt Ltd' },
+    ],
   },
   // TEST: two more containers on a vessel that already has one, so CAUTIN holds 3 and the vessel
   // tray has something to show. Every en-route vessel held exactly one container while the map's
@@ -214,8 +225,8 @@ const inboundShipments = [
     arrival_notice: 'no',
     last_freeday: '',
     items: [
-      { item: 'PECO-FH12717-1/6-A-V3', qty: 820, vendor: 'Goldsun Printing And Packaging Jsc' },
-      { item: 'TGET-NK8510', qty: 240, vendor: 'Paras Webcoat Pvt Ltd' },
+      { po_number: 'PO155561', item: 'PECO-FH12717-1/6-A-V3', qty: 820, vendor: 'Goldsun Printing And Packaging Jsc' },
+      { po_number: 'PO155562', item: 'TGET-NK8510', qty: 240, vendor: 'Paras Webcoat Pvt Ltd' },
     ],
   },
   {
@@ -237,7 +248,9 @@ const inboundShipments = [
     appointment_date: '',
     arrival_notice: 'yes',
     last_freeday: '',
-    items: [{ item: 'KRSP-NK161118', qty: 1180, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' }],
+    items: [
+      { po_number: 'PO155563', item: 'KRSP-NK161118', qty: 1180, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
+    ],
   },
 ]
 

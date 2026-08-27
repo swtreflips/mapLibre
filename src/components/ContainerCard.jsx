@@ -10,6 +10,14 @@ import './ContainerCard.css'
 // hairline, white ground, shadow-card, a 2px status bar across the top, mono micro-labels in
 // uppercase with wide tracking, and figures in tabular numerals. Both apps re-skin together
 // because both read the same variables.
+//
+// WHAT THE COLLAPSED FACE IS FOR: answering a phone call. It carries only the fields ops reads
+// off to identify and place a box — shipment no., container no., the three dates, the lane it is
+// travelling, and the three parties on the paperwork. Everything commercial (PO, item, quantity)
+// is behind the expander. Fields the card used to show and deliberately no longer does — vessel,
+// carrier, HBL, last free day, appointment date, arrival notice — were dropped, not moved. Note
+// that last free day and appointment still MATTER: they feed containerStatus() below, so they
+// reach the card as the chip's tone and word rather than as their own rows.
 
 const dash = (v) => (v && String(v).trim() !== '' ? v : '—')
 
@@ -26,14 +34,15 @@ export default function ContainerCard({ shipment: s }) {
   const [open, setOpen] = useState(false)
   const status = containerStatus(s)
   const items = s.items ?? []
-  const units = items.reduce((n, i) => n + (Number(i.qty) || 0), 0)
 
   return (
     <article className={`ccard ccard--${status.tone}`}>
       {/*
         The whole header is the toggle, not a separate chevron: the card is one target and the
         target is the thing you are looking at. A <button> rather than a click handler on the
-        <article> so it is reachable by Tab and announces its state.
+        <article> so it is reachable by Tab and announces its state. The caret rides INSIDE the
+        button so the affordance sits on the control — an earlier version put "Show more" in a
+        footer, a hairline away from the thing that actually toggled.
       */}
       <button
         type="button"
@@ -41,66 +50,59 @@ export default function ContainerCard({ shipment: s }) {
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="ccard__id">{dash(s.container)}</span>
+        <span className="ccard__id">{dash(s.shipment)}</span>
         {/* The chip carries a WORD as well as a tone. On the map, which arm a container sits in
             encodes status independently of hue; a flat tray has no arms, so the label does that
             job here. Never show the tone alone. */}
         <span className="ccard__chip">{status.label}</span>
+        <span className="ccard__caret" aria-hidden="true" />
       </button>
 
-      <p className="ccard__sub">
-        {dash(s.shipment)}
-        <span className="ccard__dot">·</span>
-        {dash(s.vessel)}
-      </p>
+      <p className="ccard__sub">{dash(s.container)}</p>
 
       <dl className="ccard__facts">
+        {/* Ends at Lastcy, NOT at the port of discharge. The box's journey finishes at the yard,
+            and the drayage leg beyond the port is the part ops still has to arrange. */}
         <Fact label="Route" wide>
-          {dash(s.port_of_loading)} <span className="ccard__arrow">→</span> {dash(s.port_of_discharge)}
+          {dash(s.port_of_loading)} <span className="ccard__arrow">→</span> {dash(s.Lastcy)}
         </Fact>
-        {s.actual_portdate ? (
-          <Fact label="Arrived">{s.actual_portdate}</Fact>
-        ) : (
-          <Fact label="ETA">
-            {dash(s.expected_portdate)}
-            {status.detail ? <span className="ccard__muted">{status.detail}</span> : null}
-          </Fact>
-        )}
-        <Fact label="Last free day">{dash(s.last_freeday)}</Fact>
-        <Fact label="Appointment">{dash(s.appointment_date)}</Fact>
+        <Fact label="ETD">{dash(s.actual_shipping)}</Fact>
+        <Fact label="ETA">
+          {dash(s.expected_portdate)}
+          {status.detail ? <span className="ccard__muted">{status.detail}</span> : null}
+        </Fact>
+        {/* Always rendered, '—' while at sea. It used to swap places with the ETA, which meant a
+            card silently changed shape on arrival and the two dates could never be read together
+            — the exact comparison you want when a box lands late. */}
+        <Fact label="Actual port date" wide>
+          {dash(s.actual_portdate)}
+        </Fact>
+        <Fact label="Forwarder">{dash(s.freight_forwarder)}</Fact>
+        <Fact label="Drayage">{dash(s.drayage_provider)}</Fact>
+        <Fact label="MBL" wide>
+          {dash(s.mbl)}
+        </Fact>
       </dl>
 
       {open && (
         <dl className="ccard__facts ccard__facts--more">
-          <Fact label="Carrier">{dash(s.confirmed_carrier)}</Fact>
-          <Fact label="Arrival notice">{dash(s.arrival_notice)}</Fact>
-          <Fact label="Forwarder" wide>
-            {dash(s.freight_forwarder)}
-          </Fact>
-          <Fact label="HBL">{dash(s.hbl)}</Fact>
-          <Fact label="MBL">{dash(s.mbl)}</Fact>
-          {items.length > 0 && (
-            <Fact label="Items" wide>
+          <Fact label="Line items" wide>
+            {items.length === 0 ? (
+              <span className="ccard__muted ccard__muted--bare">No line items</span>
+            ) : (
               <ul className="ccard__items">
                 {items.map((i, n) => (
-                  <li key={`${i.item}-${n}`}>
-                    <span className="ccard__item-name">{i.item}</span>
-                    <span className="ccard__item-qty">{Number(i.qty).toLocaleString()}</span>
-                    <span className="ccard__item-vendor">{i.vendor}</span>
+                  <li key={`${i.po_number}-${i.item}-${n}`}>
+                    <span className="ccard__item-po">{dash(i.po_number)}</span>
+                    <span className="ccard__item-name">{dash(i.item)}</span>
+                    <span className="ccard__item-qty">{Number(i.qty || 0).toLocaleString()}</span>
                   </li>
                 ))}
               </ul>
-            </Fact>
-          )}
+            )}
+          </Fact>
         </dl>
       )}
-
-      <p className="ccard__foot">
-        {items.length === 0
-          ? 'No line items'
-          : `${items.length} item${items.length === 1 ? '' : 's'} · ${units.toLocaleString()} units`}
-        <span className="ccard__more">{open ? 'Show less' : 'Show more'}</span>
-      </p>
     </article>
   )
 }

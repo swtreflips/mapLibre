@@ -12,8 +12,8 @@
   position: relative;
   /* Do NOT let the tray's flex column shrink a card. Flex items default to flex-shrink: 1, so an
      overflowing column squashes every child instead of scrolling — which silently cut ~70px off
-     each card here, taking the appointment row and the footer with it. The list scrolls; the
-     cards keep their height. */
+     each card here, taking the bottom rows of the fact grid with it. The list scrolls; the cards
+     keep their height. */
   flex: 0 0 auto;
   /* Clips the status bar to the rounded corners. Combined with the shrink above it is safe;
      without it, it would have hidden the squashing rather than caused it. */
@@ -90,11 +90,34 @@
    a malformed letter (capital S worst). If a mono label needs more presence, add size or tracking,
    not weight, or load the weight first. */
 .ccard__id {
+  /* Takes the slack so the chip and caret stay pinned right on every card, however long the id.
+     min-width: 0 is what actually lets a flex child ellipsis rather than push its siblings out. */
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 500;
   letter-spacing: 0.01em;
   color: rgb(var(--c-harbor-900));
+}
+
+/* The expander affordance, on the control that expands. Borders rather than a glyph so it needs no
+   icon font and inherits nothing that could smear at this size (see the mono note above). */
+.ccard__caret {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid rgb(var(--c-fog-400, var(--c-fog-500)));
+  border-bottom: 1.5px solid rgb(var(--c-fog-400, var(--c-fog-500)));
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform var(--motion-fast, 140ms) var(--ease-out-expo, ease);
+}
+
+.ccard__head[aria-expanded='true'] .ccard__caret {
+  transform: translateY(1px) rotate(-135deg);
 }
 
 .ccard__chip {
@@ -111,15 +134,15 @@
   white-space: nowrap;
 }
 
+/* The container number. Mono, not the old prose grey — it is an identifier people read character
+   by character off a screen and into a phone, so it gets the same treatment as the shipment id
+   above it, one step down in size and weight of colour. */
 .ccard__sub {
   margin: 3px 0 0;
-  font-size: 11px;
-  color: rgb(var(--c-fog-500));
-}
-
-.ccard__dot {
-  margin: 0 5px;
-  color: rgb(var(--c-fog-300));
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.01em;
+  color: rgb(var(--c-harbor-700, var(--c-fog-500)));
 }
 
 /* ── Fact grid ──────────────────────────────────────────────────────────────────────── */
@@ -167,6 +190,11 @@
   color: rgb(var(--c-fog-500));
 }
 
+/* Same muted voice, but standing alone rather than trailing a value — no leading gap. */
+.ccard__muted--bare {
+  margin-left: 0;
+}
+
 .ccard__arrow {
   color: rgb(var(--c-fog-400, var(--c-fog-500)));
 }
@@ -179,56 +207,42 @@
   list-style: none;
 }
 
+/* PO | item | qty on one line. The PO and the quantity are `auto`, so the item name — the only
+   column with a variable, wrappable length — absorbs the leftover width and the quantities stay
+   flush right down the list where they can be compared. */
 .ccard__items li {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0 8px;
-  padding: 3px 0;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: 0 10px;
+  padding: 4px 0;
 }
 
 .ccard__items li + li {
   border-top: 1px solid rgb(var(--c-fog-100));
 }
 
+.ccard__item-po {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: rgb(var(--c-fog-500));
+  white-space: nowrap;
+}
+
 .ccard__item-name {
   font-family: var(--font-mono);
   font-size: 11px;
   color: rgb(var(--c-harbor-900));
+  overflow-wrap: anywhere;
 }
 
 .ccard__item-qty {
   font-variant-numeric: tabular-nums;
   font-size: 11px;
   color: rgb(var(--c-harbor-800));
-}
-
-.ccard__item-vendor {
-  grid-column: 1 / -1;
-  font-size: 10.5px;
-  color: rgb(var(--c-fog-500));
-}
-
-/* ── Foot ───────────────────────────────────────────────────────────────────────────── */
-
-.ccard__foot {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 10px 0 0;
-  padding-top: 8px;
-  border-top: 1px solid rgb(var(--c-fog-100));
-  font-size: 10.5px;
-  color: rgb(var(--c-fog-500));
-}
-
-.ccard__more {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-  color: rgb(var(--c-signal-600));
+  text-align: right;
+  white-space: nowrap;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -237,5 +251,9 @@
   }
   .ccard:hover {
     transform: none;
+  }
+  /* The caret still has to end up pointing the right way — kill the tween, not the rotation. */
+  .ccard__caret {
+    transition: none;
   }
 }
