@@ -9,6 +9,35 @@
   height: 100%;
 }
 
+/* ── Port container cards ──────────────────────────────────────────────────────────────
+   One DOM marker per discharge port, holding the isometric stack from src/map/portCard.js.
+   Vector SVG rather than a sprite, so it stays crisp at every zoom and devicePixelRatio with
+   no bake step — the reason it is a marker and not a symbol layer (CLAUDE.md §5.4).
+
+   --card-scale is set on .map-container by MapView on every `zoom`, because DOM markers do not
+   scale with the map the way the container sprites they replaced did. One property drives every
+   card at once rather than touching each marker. */
+.map-container {
+  --card-scale: 0.8;
+}
+
+.port-card {
+  /* transform-origin bottom so the stack grows UPWARD from the port it sits on, rather than
+     drifting off it as the scale changes. Pairs with the marker's anchor: 'bottom'. */
+  transform: scale(var(--card-scale));
+  transform-origin: 50% 100%;
+  line-height: 0; /* kill the inline-descender gap under the svg, which would lift the stack */
+  will-change: transform;
+  pointer-events: none; /* cards are not interactive yet — see CLAUDE.md §8 port summary */
+}
+
+.port-card__svg {
+  display: block;
+  /* A soft ground shadow reads as "sitting on the map" rather than floating above it. Cheap:
+     a drop-shadow filter on the whole stack, not a shadow per box. */
+  filter: drop-shadow(0 1px 1.5px rgb(18 28 22 / 0.28));
+}
+
 /* Error surfaces belong to the palette too. A stock red alert box beside a warm sidebar reads
    as a piece of a different application — which is exactly what it used to be. */
 .map-error {

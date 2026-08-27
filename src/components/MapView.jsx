@@ -15,6 +15,7 @@ import {
 } from '../lib/vesselMath'
 import { buildBasemapStyle, mapPalette, FONT_REGULAR, FONT_BOLD } from '../map/basemapStyle'
 import { placesFC, buildPlacesFC } from '../data/places'
+import { portCardSvg, portCardLabel } from '../map/portCard'
 import { useUsPorts } from '../hooks/useUsPorts'
 import { useLoadingPorts } from '../hooks/useLoadingPorts'
 
@@ -63,14 +64,28 @@ const STERN_EM = 1.5
 // only at INTEGER zoom levels, which is why those minzooms are whole numbers.
 const PLACE_ZOOM_FILTER = ['<=', ['get', 'minzoom'], ['zoom']]
 
-// Container spiral, in SCREEN PIXELS. A touch tighter when fully zoomed out and through the
-// first few zoom-ins, easing up to the base radius by ~zoom 6 (then steady).
-const GOLDEN_ANGLE = (137.5 * Math.PI) / 180
-const CONTAINER_RING_MIN_PX = 12 // fully zoomed out
-const CONTAINER_RING_MAX_PX = 16 // zoom >= 6
-const containerRingPx = (zoom) => {
-  const t = Math.min(Math.max((zoom - 2) / (6 - 2), 0), 1)
-  return CONTAINER_RING_MIN_PX + (CONTAINER_RING_MAX_PX - CONTAINER_RING_MIN_PX) * t
+// Port cards are DOM markers, so unlike a symbol layer they do NOT scale with the map. This
+// mirrors the icon-size curve the container symbols used, applied as a CSS transform — without
+// it a card that reads well at z6 dominates the world view.
+// Sized to sit alongside the vessels rather than dominate them. The container sprites this
+// replaced were 40 CSS px on the same curve; at 72 the card spanned ~1,200 km at world zoom and
+// swallowed the northeast US. 44 keeps a card comparable to a vessel while still reading as
+// "several containers".
+const CARD_BASE_PX = 44
+const cardScale = (zoom) => {
+  const stops = [
+    [2, 0.6],
+    [6, 0.8],
+    [10, 1.1],
+  ]
+  if (zoom <= stops[0][0]) return stops[0][1]
+  if (zoom >= stops.at(-1)[0]) return stops.at(-1)[1]
+  for (let i = 1; i < stops.length; i += 1) {
+    const [z0, s0] = stops[i - 1]
+    const [z1, s1] = stops[i]
+    if (zoom <= z1) return s0 + ((zoom - z0) / (z1 - z0)) * (s1 - s0)
+  }
+  return 1
 }
 
 // Min zoom where exactly one world copy fills the container width
@@ -101,6 +116,50 @@ const MOCK_CONTAINER_COUNT = 7
 function sternOffset(bearing, mapBearing) {
   const theta = ((bearing - mapBearing) * Math.PI) / 180
   return [-STERN_EM * Math.sin(theta), STERN_EM * Math.cos(theta)]
+}
+
+// Reconcile the live markers against the ports that currently have containers.
+//
+// Update / create / REMOVE, in that order. The removal pass is the one that matters: a marker that
+// is never removed is a card stuck on the map for the rest of the session, showing containers that
+// have since been delivered. `cards` is a Map keyed by port so this stays O(n) and each card keeps
+// its DOM element (and any hover state) across refreshes instead of being torn down and rebuilt.
+function syncPortCards(map, ports, cards) {
+  const seen = new Set()
+
+  for (const port of ports) {
+    seen.add(port.key)
+    const html = portCardSvg(port.statuses, CARD_BASE_PX)
+    const label = portCardLabel(port.name, port.statuses)
+    let card = cards.get(port.key)
+
+    if (!card) {
+      const el = document.createElement('div')
+      el.className = 'port-card'
+      // anchor 'bottom' puts the stack's base ON the port rather than centring it over the dot.
+      const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+        .setLngLat(port.coordinates)
+        .addTo(map)
+      card = { el, marker, html: null }
+      cards.set(port.key, card)
+    }
+
+    card.marker.setLngLat(port.coordinates)
+    // Only touch innerHTML when the stack actually changed — reassigning it every refresh would
+    // rebuild the SVG DOM and throw away any in-flight CSS transition.
+    if (card.html !== html) {
+      card.el.innerHTML = html
+      card.html = html
+    }
+    card.el.title = label
+    card.el.setAttribute('aria-label', label)
+  }
+
+  for (const [key, card] of cards) {
+    if (seen.has(key)) continue
+    card.marker.remove()
+    cards.delete(key)
+  }
 }
 
 function buildFeatures(shipments, routesByKey, map) {
@@ -145,33 +204,28 @@ function buildFeatures(shipments, routesByKey, map) {
     }
   }
 
-  // Spiral slots in SCREEN-PIXEL space so the fan is a constant size at every zoom (project
-  // the port, offset in px, unproject). Sort by shipment id so each container keeps its slot /
-  // position across refreshes and zoom (stable slots, §5.3). Slot 0 sits on the port.
-  const containerFeatures = []
-  const ring = containerRingPx(map.getZoom())
-  for (const { podCoords, list } of arrivedByPod.values()) {
+  // ONE CARD PER PORT, not one icon per container. The old golden-angle spiral fanned every
+  // container around its port, which answered the wrong question — you counted scattered boxes
+  // instead of reading a port's load at a glance, and a busy port became a smear.
+  //
+  // arrivedByPod already did the grouping and picked a canonical anchor per port; only what gets
+  // emitted changes. Sort by shipment id so a container keeps its slot in the stack across
+  // refreshes rather than shuffling.
+  const ports = []
+  for (const [podKey, { podCoords, list }] of arrivedByPod) {
     list.sort((a, b) => (a.shipment < b.shipment ? -1 : a.shipment > b.shipment ? 1 : 0))
-    const basePx = map.project(podCoords)
-    list.forEach((s, index) => {
-      let pos = podCoords
-      if (index > 0) {
-        const r = ring * Math.sqrt(index)
-        const a = index * GOLDEN_ANGLE
-        pos = map.unproject([basePx.x + Math.cos(a) * r, basePx.y + Math.sin(a) * r]).toArray()
-      }
-      byId.set(s.shipment, { meta: s, remaining: null })
-      containerFeatures.push({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: pos },
-        properties: { shipment: s.shipment, color: containerColor(s) },
-      })
+    for (const s of list) byId.set(s.shipment, { meta: s, remaining: null })
+    ports.push({
+      key: podKey,
+      name: list[0]?.port_of_discharge ?? podKey,
+      coordinates: podCoords,
+      statuses: list.map((s) => containerColor(s)),
     })
   }
 
   return {
     shipFC: { type: 'FeatureCollection', features: shipFeatures },
-    containerFC: { type: 'FeatureCollection', features: containerFeatures },
+    ports,
     byId,
   }
 }
@@ -180,6 +234,9 @@ export default function MapView({ shipments, onSelect }) {
   const containerRef = useRef(null)
   const mapRef = useRef(null)
   const vesselsByIdRef = useRef(new Map())
+  // port key -> { el, marker, html }. Lives in a ref, not state: markers are imperative DOM
+  // that must survive re-renders, and mutating them should never trigger one.
+  const cardsRef = useRef(new Map())
   const selectedIdRef = useRef(null)
   const [mapReady, setMapReady] = useState(false)
 
@@ -204,22 +261,30 @@ export default function MapView({ shipments, onSelect }) {
     mapRef.current = map
 
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
+
+    // Port cards are DOM, so they do not scale with the map the way the old container sprites
+    // did. One CSS custom property on the container drives every card at once — cheaper than
+    // touching each marker, and it rides the same curve the sprites used.
+    const applyCardScale = () => {
+      containerRef.current?.style.setProperty('--card-scale', cardScale(map.getZoom()).toFixed(3))
+    }
+    applyCardScale()
+    map.on('zoom', applyCardScale)
     map.on('resize', () => {
       map.setMinZoom(computeMinZoom(map.getContainer().clientWidth))
     })
 
     map.on('load', async () => {
-      const [def, grn, defSm, grnSm, cBlue, cGreen, cRed] = await Promise.all([
+      // Containers are no longer sprites — a port draws one isometric card as a DOM marker
+      // (src/map/portCard.js), so only the vessel tiers load here.
+      const [def, grn, defSm, grnSm] = await Promise.all([
         map.loadImage('/icons/nauticalDefault2.png'), // default vessel (MarineTraffic green)
         map.loadImage('/icons/nauticalGreen2.png'),
         map.loadImage('/icons/nauticalDefault2-sm.png'), // low-zoom tier, see below
         map.loadImage('/icons/nauticalGreen2-sm.png'),
-        map.loadImage('/icons/blueContainer.png'),
-        map.loadImage('/icons/greenContainer.png'),
-        map.loadImage('/icons/redContainer.png'),
       ])
-      // Ships 60x49, containers 80x80 (Pillow/LANCZOS from 980/500px originals), tagged 2x
-      // density so outlines stay crisp under GPU minification.
+      // Ships rasterised from assets/vessel.svg, tagged 2x density so outlines stay crisp
+      // under GPU minification.
       if (!map.hasImage('shipDefault')) map.addImage('shipDefault', def.data, { pixelRatio: 2 })
       if (!map.hasImage('shipGreen')) map.addImage('shipGreen', grn.data, { pixelRatio: 2 })
       // The -sm tier is a 33x28 bitmap, so it registers at pixelRatio 1 — that gives it the same
@@ -227,9 +292,6 @@ export default function MapView({ shipments, onSelect }) {
       // Registering it at 2 like the others would draw it at half size.
       if (!map.hasImage('shipDefaultSm')) map.addImage('shipDefaultSm', defSm.data, { pixelRatio: 1 })
       if (!map.hasImage('shipGreenSm')) map.addImage('shipGreenSm', grnSm.data, { pixelRatio: 1 })
-      if (!map.hasImage('containerBlue')) map.addImage('containerBlue', cBlue.data, { pixelRatio: 2 })
-      if (!map.hasImage('containerGreen')) map.addImage('containerGreen', cGreen.data, { pixelRatio: 2 })
-      if (!map.hasImage('containerRed')) map.addImage('containerRed', cRed.data, { pixelRatio: 2 })
 
       const palette = mapPalette()
 
@@ -260,7 +322,6 @@ export default function MapView({ shipments, onSelect }) {
       })
 
       map.addSource('vessels', { type: 'geojson', data: EMPTY_FC })
-      map.addSource('containers', { type: 'geojson', data: EMPTY_FC })
       map.addSource('remaining-route', { type: 'geojson', data: EMPTY_FC })
 
       map.addLayer({
@@ -368,24 +429,6 @@ export default function MapView({ shipments, onSelect }) {
         },
       })
 
-      map.addLayer({
-        id: 'containers',
-        type: 'symbol',
-        source: 'containers',
-        layout: {
-          'icon-image': [
-            'match',
-            ['get', 'color'],
-            'green', 'containerGreen',
-            'red', 'containerRed',
-            'containerBlue',
-          ],
-          'icon-allow-overlap': true,
-          // 80x80 image @2x density => ~40px at size 1.0; these stops give ~24-44px square.
-          'icon-size': ['interpolate', ['linear'], ['zoom'], 2, 0.6, 6, 0.8, 10, 1.1],
-        },
-      })
-
       // Place labels, on top of everything.
       map.addLayer({
         id: 'place-labels',
@@ -459,7 +502,7 @@ export default function MapView({ shipments, onSelect }) {
         })
       }
 
-      for (const layer of ['vessels', 'containers']) {
+      for (const layer of ['vessels']) {
         map.on('mouseenter', layer, () => {
           map.getCanvas().style.cursor = 'pointer'
         })
@@ -471,7 +514,7 @@ export default function MapView({ shipments, onSelect }) {
 
       // Click empty map: clear selection + dashed line.
       map.on('click', (e) => {
-        const hits = map.queryRenderedFeatures(e.point, { layers: ['vessels', 'containers'] })
+        const hits = map.queryRenderedFeatures(e.point, { layers: ['vessels'] })
         if (hits.length > 0) return
         clearSelection()
       })
@@ -479,7 +522,16 @@ export default function MapView({ shipments, onSelect }) {
       setMapReady(true)
     })
 
+    // Captured now, not read at cleanup time: by then cardsRef.current may point at a different
+    // Map, and we would tear down the wrong registry (or none).
+    const cards = cardsRef.current
+
     return () => {
+      // Markers are attached to the map but owned by us; map.remove() drops their DOM, so clear
+      // the registry too or a remount starts with a Map full of dead references.
+      for (const { marker } of cards.values()) marker.remove()
+      cards.clear()
+      map.off('zoom', applyCardScale)
       map.remove()
       mapRef.current = null
     }
@@ -504,10 +556,10 @@ export default function MapView({ shipments, onSelect }) {
     if (!mapReady || !map || !routesByKey) return
 
     const rebuild = () => {
-      const { shipFC, containerFC, byId } = buildFeatures(shipments, routesByKey, map)
+      const { shipFC, ports, byId } = buildFeatures(shipments, routesByKey, map)
       vesselsByIdRef.current = byId
       map.getSource('vessels')?.setData(shipFC)
-      map.getSource('containers')?.setData(containerFC)
+      syncPortCards(map, ports, cardsRef.current)
 
       // Keep the dashed line in sync if the selected ship still exists (containers have none).
       const selId = selectedIdRef.current
@@ -519,7 +571,10 @@ export default function MapView({ shipments, onSelect }) {
       )
 
       if (import.meta.env.DEV) {
-        console.log(`[MapView] ${shipFC.features.length} ships, ${containerFC.features.length} containers`)
+        const boxes = ports.reduce((n, p) => n + p.statuses.length, 0)
+        console.log(
+          `[MapView] ${shipFC.features.length} ships, ${ports.length} port cards (${boxes} containers)`,
+        )
       }
     }
 

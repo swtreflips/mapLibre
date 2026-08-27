@@ -56,6 +56,8 @@ npm run lint      # ESLint
   in a single GeoJSON source, rendered by `symbol`/`circle`/`line` layers, and update them
   with `map.getSource(id).setData(...)`. This scales far better than one
   `maplibregl.Marker` per vessel, and lets you update all positions in one call on refresh.
+  **One deliberate exception:** port container cards are DOM markers, because there is one per
+  *port* rather than per container and the trade inverts — see §5.4 and CARDS.md §5.
 - **Style: self-authored, no vendor basemap.** [src/map/basemapStyle.js](src/map/basemapStyle.js)
   exports `buildBasemapStyle()`, a full MapLibre style object passed straight to `style:`
   (the option takes an object, not just a URL — that's the whole seam). It draws water, a flat
@@ -252,26 +254,30 @@ the offset only nudges the icon a few px and never rotates it.
 
 Tunables: `CLUSTER_PX` (overlap threshold) and `RING_PX` (spread tightness).
 
-### 5.4 Container spiral (ports) — pixel-space golden-angle fan
-Arrived containers are placed at their **discharge port** and fanned so multiple at the same
-port don't fully stack. Implemented in [MapView.jsx](src/components/MapView.jsx) `buildFeatures`
-(this replaced the Leaflet degree-based `applyContainerOffset`):
+### 5.4 Port container cards — one isometric stack per port
+Arrived containers are drawn as **one card per discharge port**: an isometric stack two containers
+wide growing upward, coloured per container by status. A port with no containers renders nothing.
+Full reference in **[CARDS.md](CARDS.md)**; implementation in
+[src/map/portCard.js](src/map/portCard.js) + `syncPortCards` in
+[MapView.jsx](src/components/MapView.jsx).
+
+**This replaced a golden-angle spiral of one sprite per container.** The spiral answered the wrong
+question — you counted scattered boxes instead of reading a port's load at a glance, and a busy
+port became a smear.
 
 - **Group by discharge port**, regardless of route / port of loading. All containers at a port
-  share **one canonical anchor** (the first matched route's `podCoords` for that port), so
-  containers arriving via different lanes still spiral around the same center.
-- **Pixel-space spiral** (same model as §5.3): project the port to pixels, place slot *i* at
-  radius `ring · √i`, angle `i · 137.5°`, then `unproject`. Slot 0 sits exactly on the port.
-  Doing it in pixels keeps the fan a **constant on-screen size at every zoom** — the original
-  degree-based offset ballooned in pixels when zoomed in (degrees shrink slower than
-  pixels-per-degree grow).
-- **Ring ramps with zoom:** `CONTAINER_RING_MIN_PX` (12, fully zoomed out) →
-  `CONTAINER_RING_MAX_PX` (16, by ~zoom 6), then steady — a touch tighter at the low end.
-- **Stable slots:** sort each port's containers by `shipment` id, so a container keeps its
-  slot/position across refreshes and zoom (no jumping). Recompute on data refresh + `zoomend`.
+  share **one canonical anchor** (the first matched route's `podCoords`). `arrivedByPod` in
+  `buildFeatures` still does exactly this; only what it emits changed.
+- **DOM markers, not a symbol layer** — a deliberate exception to §3, argued in CARDS.md §5. One
+  marker per *port* (under a dozen) inverts the trade that rule is about, and buys vector crispness
+  with no bake step plus a real click target for the §8 port summary.
+- **The SVG viewBox does the shrink-to-fit**; `vector-effect="non-scaling-stroke"` keeps the
+  outline from going sub-pixel on tall stacks — the §5.5 failure, in a different disguise.
+- **Cards do not scale with the map** the way sprites do: `--card-scale` on `.map-container` is
+  driven from the `zoom` event on the old sprite curve (z2→0.6, z6→0.8, z10→1.1).
 
 Future containers at the POL are **deferred** (not yet implemented).
-Tunables: `CONTAINER_RING_MIN_PX` / `CONTAINER_RING_MAX_PX`.
+Tunable: `CARD_BASE_PX` in MapView.
 
 ### 5.5 Icon sizing (baked PNGs + zoom-interpolated `icon-size`)
 Icons are baked near display size and registered with `map.addImage(..., { pixelRatio: 2 })`, then
@@ -285,7 +291,7 @@ a very different size — don't just change `icon-size`.
 
   Both report **~33 CSS px logical width**, so one `icon-size` expression drives both and the
   switch changes outline *weight*, never size. `icon-size` stops (2→0.6, 6→1.0, 10→1.4).
-- **Containers** `80×80` square, still Pillow-baked. `icon-size` stops (2→0.6, 6→0.8, 10→1.1).
+- **Containers** are no longer sprites — each port draws one isometric SVG card (§5.4, CARDS.md).
 
 **The ships were rebuilt from vector because a raster master rotted the contour.** The old art was
 a 980×606 original LANCZOS-shrunk to 60×49, and by the time it shipped the intended `#086A08`
@@ -407,15 +413,13 @@ it is obsolete here.
 
 Icons live in [public/icons/](public/icons/), baked from source art (§5.5) and registered with
 `addImage(..., { pixelRatio: 2 })`. **The ships come from [assets/vessel.svg](assets/vessel.svg)
-via `npm run build:icons`; the containers are still Pillow-baked rasters.**
+via `npm run build:icons`. Containers are no longer icons at all — each port draws one
+isometric SVG card (§5.4).**
 
 | image name | file | used for | selected when |
 |---|---|---|---|
 | `shipDefault` | `nauticalDefault2.png` | en-route ship, default | `arrival_notice ≠ yes` |
 | `shipGreen` | `nauticalGreen2.png` | en-route ship | `arrival_notice = yes` |
-| `containerBlue` | `blueContainer.png` | arrived container | recent (≤3 days at CY) |
-| `containerGreen` | `greenContainer.png` | arrived container | appointment set |
-| `containerRed` | `redContainer.png` | arrived container | > 3 days at CY |
 
 - **Ships: edit [assets/vessel.svg](assets/vessel.svg), then `npm run build:icons`.** One polygon
   (bow apex, straight flanks, concave notched stern) drives both variants; the bake swaps two
@@ -436,10 +440,10 @@ via `npm run build:icons`; the containers are still Pillow-baked rasters.**
   `"icon-image": ["match", ["get", "color"], …]`.
 - The ship PNGs point "east" at 0° — the layer rotates by `bearing − 90` (written to each
   feature's `rotation` property); verified against the real sprite.
-- **Casing:** the file is `blueContainer.png` (lowercase `b`); the Leaflet source's
-  `Bluecontainer.png` only worked because Windows is case-insensitive. Use the exact name.
 - Routes are **not** bundled — they come from Supabase (§4).
 - **Basemap geometry and glyphs** are bundled, in `public/data/` and `public/fonts/` — see §15.
+- `blueContainer.png` / `greenContainer.png` / `redContainer.png` are **unreferenced** since the
+  port cards landed (§5.4). Kept for one iteration in case the card needs rolling back.
 
 ## 11. Pointers
 
