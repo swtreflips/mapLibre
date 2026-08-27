@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import './MapView.css'
@@ -14,7 +14,7 @@ import {
   containerColor,
 } from '../lib/vesselMath'
 import { buildBasemapStyle, mapPalette, FONT_REGULAR, FONT_BOLD } from '../map/basemapStyle'
-import { placesFC, buildPlacesFC } from '../data/places'
+import { placesFC, buildPlacesFC, portPointsByKey } from '../data/places'
 import { portCardSvg, portCardLabel } from '../map/portCard'
 import { useUsPorts } from '../hooks/useUsPorts'
 import { useLoadingPorts } from '../hooks/useLoadingPorts'
@@ -67,11 +67,9 @@ const PLACE_ZOOM_FILTER = ['<=', ['get', 'minzoom'], ['zoom']]
 // Port cards are DOM markers, so unlike a symbol layer they do NOT scale with the map. This
 // mirrors the icon-size curve the container symbols used, applied as a CSS transform — without
 // it a card that reads well at z6 dominates the world view.
-// Sized to sit alongside the vessels rather than dominate them. The container sprites this
-// replaced were 40 CSS px on the same curve; at 72 the card spanned ~1,200 km at world zoom and
-// swallowed the northeast US. 44 keeps a card comparable to a vessel while still reading as
-// "several containers".
-// The tri-arm card is ~2x wider than the single mixed stack it replaced (three 2-wide footprints
+//
+// Sizing history: the container sprites this replaced were 40 CSS px on the same curve, and at 72
+// the card spanned ~1,200 km at world zoom and swallowed the northeast US. The tri-arm card is ~2x wider than the single mixed stack it replaced (three 2-wide footprints
 // side by side instead of one), and the square viewBox fits by width — so at the old 44 the boxes
 // came out half-size. 64 splits the difference: boxes ~73% of the old size, card ~46% wider on
 // screen. This is the lever if cards feel too heavy at world zoom.
@@ -107,7 +105,7 @@ const MOCK_CONTAINER_COUNT = 7
 
 // Build ship + container FeatureCollections and an id->{meta, remaining} lookup.
 //   en-route -> ship, interpolated along the route (remaining = dashed-line coords)
-//   arrived  -> container at the discharge port (+ golden-angle spiral offset), remaining=null
+//   arrived  -> counted into its discharge port's card, at the PORT's coordinate, remaining=null
 //   future   -> deferred
 // Unit vector pointing ASTERN, in text-offset's frame: ems, +x right, +y down.
 //
@@ -166,17 +164,37 @@ function syncPortCards(map, ports, cards) {
   }
 }
 
-function buildFeatures(shipments, routesByKey, map) {
+function buildFeatures(shipments, routesByKey, map, portPoints) {
   const mapBearing = map.getBearing()
   const shipFeatures = []
   const byId = new Map()
   // Arrived shipments grouped by DISCHARGE PORT (regardless of route / port of loading).
-  const arrivedByPod = new Map() // podKey -> { podCoords:[lng,lat], list:[shipment] }
+  const arrivedByPod = new Map() // podKey -> { routeEnd:[lng,lat]|null, list:[shipment] }
 
   for (const s of shipments) {
+    const state = shipmentState(s)
+
+    // ARRIVED containers are handled BEFORE the route lookup, because they no longer need one:
+    // a container sitting at a port is placed by the port, not by how it got there. That also
+    // closes a silent drop — port names in this data are not normalised (CLAUDE.md §4), so a lane
+    // whose route failed to join used to take its arrived containers down with it.
+    if (state === 'arrived') {
+      const podKey = normalizeKey(s.port_of_discharge)
+      if (!podKey) continue
+      if (!arrivedByPod.has(podKey)) arrivedByPod.set(podKey, { routeEnd: null, list: [] })
+      const group = arrivedByPod.get(podKey)
+      // Kept only as a fallback for a port with no row in `us_ports` / `world_ports`. Taken from
+      // whichever shipment first offers a usable route, not necessarily the first in the group.
+      if (!group.routeEnd) {
+        const c = routesByKey.get(normalizeKey(s.route))
+        if (c && c.length >= 2) group.routeEnd = c[c.length - 1]
+      }
+      group.list.push(s)
+      continue
+    }
+
     const coords = routesByKey.get(normalizeKey(s.route))
     if (!coords || coords.length < 2) continue
-    const state = shipmentState(s)
 
     if (state === 'enroute') {
       const progress = computeProgress(parseYMD(s.actual_shipping), parseYMD(s.expected_portdate))
@@ -197,14 +215,6 @@ function buildFeatures(shipments, routesByKey, map) {
           textOffset: sternOffset(bearing, mapBearing),
         },
       })
-    } else if (state === 'arrived') {
-      const podKey = normalizeKey(s.port_of_discharge)
-      // Anchor every container at one canonical port point (first route seen for that port)
-      // so containers from different routes/POLs still spiral around a shared center.
-      if (!arrivedByPod.has(podKey)) {
-        arrivedByPod.set(podKey, { podCoords: coords[coords.length - 1], list: [] })
-      }
-      arrivedByPod.get(podKey).list.push(s)
     }
   }
 
@@ -212,17 +222,23 @@ function buildFeatures(shipments, routesByKey, map) {
   // container around its port, which answered the wrong question — you counted scattered boxes
   // instead of reading a port's load at a glance, and a busy port became a smear.
   //
-  // arrivedByPod already did the grouping and picked a canonical anchor per port; only what gets
-  // emitted changes. Sort by shipment id so a container keeps its slot in the stack across
-  // refreshes rather than shuffling.
+  // arrivedByPod already did the grouping; only what gets emitted changes. Sort by shipment id so
+  // a container keeps its slot in the stack across refreshes rather than shuffling.
   const ports = []
-  for (const [podKey, { podCoords, list }] of arrivedByPod) {
+  for (const [podKey, { routeEnd, list }] of arrivedByPod) {
+    // THE PORT'S OWN COORDINATE — the very point its label is drawn at. The sea route's last
+    // vertex is only a fallback for a port with no row in the ports tables, since that endpoint is
+    // a node in a shipping-lane graph rather than the terminal itself and can sit visibly offshore.
+    const anchored = portPoints?.get(podKey)
+    const coordinates = anchored ?? routeEnd
+    if (!coordinates) continue // neither a port row nor a route: nothing to anchor to
     list.sort((a, b) => (a.shipment < b.shipment ? -1 : a.shipment > b.shipment ? 1 : 0))
     for (const s of list) byId.set(s.shipment, { meta: s, remaining: null })
     ports.push({
       key: podKey,
       name: list[0]?.port_of_discharge ?? podKey,
-      coordinates: podCoords,
+      coordinates,
+      anchored: Boolean(anchored),
       statuses: list.map((s) => containerColor(s)),
     })
   }
@@ -553,6 +569,11 @@ export default function MapView({ shipments, onSelect }) {
     map.getSource('places')?.setData(buildPlacesFC({ usPorts, intlPorts }))
   }, [mapReady, usPorts, intlPorts])
 
+  // Where the port cards get anchored: the ports' own coordinates, the same ones the labels above
+  // are drawn at. Memoized because it is a dependency of the rebuild effect — rebuilt inline it
+  // would be a new object every render and re-run the whole vessel pass on each one.
+  const portPoints = useMemo(() => portPointsByKey({ usPorts, intlPorts }), [usPorts, intlPorts])
+
   // --- Build / refresh positions when data is ready (no animation; CLAUDE.md §6). ---
   // Recompute on zoomend so the pixel-space container spiral stays a constant on-screen size.
   useEffect(() => {
@@ -560,7 +581,7 @@ export default function MapView({ shipments, onSelect }) {
     if (!mapReady || !map || !routesByKey) return
 
     const rebuild = () => {
-      const { shipFC, ports, byId } = buildFeatures(shipments, routesByKey, map)
+      const { shipFC, ports, byId } = buildFeatures(shipments, routesByKey, map, portPoints)
       vesselsByIdRef.current = byId
       map.getSource('vessels')?.setData(shipFC)
       syncPortCards(map, ports, cardsRef.current)
@@ -576,8 +597,13 @@ export default function MapView({ shipments, onSelect }) {
 
       if (import.meta.env.DEV) {
         const boxes = ports.reduce((n, p) => n + p.statuses.length, 0)
+        // A card that fell back to the route endpoint means its port_of_discharge has no row in
+        // us_ports / world_ports — almost always a name that drifted, not a missing port. Worth
+        // naming, because the card still draws and the miss would otherwise be invisible.
+        const adrift = ports.filter((p) => !p.anchored).map((p) => p.name)
         console.log(
-          `[MapView] ${shipFC.features.length} ships, ${ports.length} port cards (${boxes} containers)`,
+          `[MapView] ${shipFC.features.length} ships, ${ports.length} port cards (${boxes} containers)` +
+            (adrift.length ? ` — ${adrift.length} not matched to a port row: ${adrift.join(', ')}` : ''),
         )
       }
     }
@@ -593,7 +619,7 @@ export default function MapView({ shipments, onSelect }) {
       map.off('zoomend', rebuild)
       map.off('rotateend', rebuild)
     }
-  }, [mapReady, routesByKey, shipments])
+  }, [mapReady, routesByKey, shipments, portPoints])
 
   return (
     <div className="map-wrap">

@@ -268,8 +268,14 @@ question — you counted scattered boxes instead of reading a port's load at a g
 port became a smear.
 
 - **Group by discharge port**, regardless of route / port of loading. All containers at a port
-  share **one canonical anchor** (the first matched route's `podCoords`). `arrivedByPod` in
-  `buildFeatures` still does exactly this; only what it emits changed.
+  share one anchor: **the port's own coordinate — the exact point its label is drawn at**, via
+  `portPointsByKey` in [places.js](src/data/places.js), which derives it from `buildPlacesFC`'s own
+  output so a card and its label cannot drift apart. The **last vertex of the sea route** is only a
+  fallback now: those are `searoute` graph paths, so the endpoint is a lane node near the port
+  rather than the port (2.8 km out at New York). A card that falls back is named in the DEV log —
+  it means the POD matched no row in `us_ports` / `world_ports`, nearly always a drifted name.
+- **Arrived containers are resolved before the route lookup**, so a lane that fails to join no
+  longer takes its arrived containers with it. A container at a port is placed by the port.
 - **DOM markers, not a symbol layer** — a deliberate exception to §3, argued in CARDS.md §5. One
   marker per *port* (under a dozen) inverts the trade that rule is about, and buys vector crispness
   with no bake step plus a real click target for the §8 port summary.

@@ -170,7 +170,31 @@ a `×N` overflow, **not** a bigger card.
 
 ---
 
-## 5. Why DOM markers
+## 5. Where a card is anchored
+
+**At the port's own coordinate — the exact point its label is drawn at.** `portPointsByKey` in
+[src/data/places.js](src/data/places.js) builds that lookup from `buildPlacesFC`'s own output, so
+the card and the label read the same coordinate through the same code path and cannot drift apart.
+A place excluded from the map is excluded here too.
+
+Cards used to sit at **the last vertex of the sea route** instead. Those routes are `searoute`
+graph paths, so the endpoint is a node in a shipping-lane network — near the port, but not the
+port. At New York the two are 2.8 km apart: invisible at world zoom, plainly wrong once you zoom
+in, and potentially much worse for a lane whose graph node sits well offshore.
+
+The route endpoint survives **only as a fallback**, for a `port_of_discharge` with no row in
+`us_ports` / `world_ports`. That is nearly always a drifted name rather than a missing port
+(CLAUDE.md §4), so the DEV rebuild log names any port that fell back — the card still draws, and
+the miss would otherwise be invisible.
+
+**Arrived containers no longer need a route at all**, which closes a silent drop: a lane that
+failed to join used to take its arrived containers down with it, because the route lookup ran
+before the state check. A container sitting at a port is placed by the port, not by how it got
+there.
+
+---
+
+## 6. Why DOM markers
 
 This is a deliberate departure from CLAUDE.md §3's "prefer data-driven layers over DOM markers".
 That rule exists because one `Marker` *per vessel* does not scale. This is one per **port** — under
@@ -188,7 +212,7 @@ only reassigned when the stack actually changed, so refreshes do not rebuild the
 
 ---
 
-## 6. Known gap
+## 7. Known gap
 
 **Cards are not interactive** (`pointer-events: none`). Clicking a container used to fill the
 sidebar with that shipment; one card standing for N containers has no single shipment to show — the

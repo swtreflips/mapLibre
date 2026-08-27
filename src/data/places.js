@@ -164,3 +164,23 @@ export function buildPlacesFC({ usPorts, intlPorts } = {}) {
 
 // Empty first paint — every place now arrives from Supabase.
 export const placesFC = buildPlacesFC()
+
+// portKey -> [lng, lat], for anything that needs to sit ON a port rather than near it.
+//
+// Derived from buildPlacesFC's own output rather than from the raw rows, deliberately: the port
+// cards and the port labels then read the same coordinate through the same code path, so they
+// cannot drift apart, and a place excluded from the map is excluded here too.
+//
+// Cards used to be anchored at the LAST VERTEX OF THE SEA ROUTE instead. Those routes are
+// `searoute` graph paths whose endpoint is a node in a shipping-lane network — near the port, but
+// not the port — so a stack could sit visibly offshore from its own label.
+//
+// US rows are merged last and so win any collision with an international name. That is the right
+// default here: the consumer is the port of DISCHARGE.
+export function portPointsByKey(sources) {
+  const points = new Map()
+  for (const f of buildPlacesFC(sources).features) {
+    if (f.properties.portKey) points.set(f.properties.portKey, f.geometry.coordinates)
+  }
+  return points
+}
