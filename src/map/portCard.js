@@ -259,7 +259,7 @@ const BUBBLE_TEXT = '#242424' // ~16:1 on white — the numeral is the data, so 
 const BUBBLE_R_MIN = 10
 const BUBBLE_R_MAX = 16
 const BUBBLE_R_FULL = 25 // count at which the bubble reaches BUBBLE_R_MAX
-const bubbleRadius = (n) =>
+export const bubbleRadius = (n) =>
   BUBBLE_R_MIN + (BUBBLE_R_MAX - BUBBLE_R_MIN) * Math.min(1, Math.sqrt(n / BUBBLE_R_FULL))
 
 // Shrink the numeral as digits are added so three digits still fit inside the disc.

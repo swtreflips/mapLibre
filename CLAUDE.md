@@ -459,6 +459,11 @@ the data held exactly 1 — grouping is what made it honest.
   **flies to** the holder (`flyTo`, `zoom = max(current, SELECT_ZOOM)` — only zooms in).
 - **En-route vessels:** selecting draws the dashed **remaining-route** line (position → POD).
 - **Ports:** selecting fills the tray and flies to; no dashed line.
+- **Close ports are de-cluttered in pixel space** — `relaxOverlaps` in
+  [declutter.js](src/map/declutter.js) pushes overlapping markers apart along the line between
+  them, so relative bearing survives, and the offset goes on the `Marker` rather than the `lngLat`.
+  DOM markers get no collision handling (§3); this is what pays for that. Offsets fall to zero on
+  their own as zoom separates the ports. See CARDS.md §7.
 - **Port cards are DOM markers, so hit testing goes on the SVG SHAPES, not the `<svg>`.**
   `pointer-events: auto` on an `<svg>` root makes its whole border box clickable like any replaced
   element — measured, a click on an empty corner of the 64px marker hit the card instead of panning

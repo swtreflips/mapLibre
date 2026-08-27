@@ -12,7 +12,8 @@ import {
 } from '../lib/vesselMath'
 import { buildBasemapStyle, mapPalette, FONT_REGULAR, FONT_BOLD } from '../map/basemapStyle'
 import { placesFC, buildPlacesFC, portPointsByKey, FIRST_LABEL_ZOOM } from '../data/places'
-import { portCardSvg, portCardLabel, portBubbleSvg } from '../map/portCard'
+import { portCardSvg, portCardLabel, portBubbleSvg, bubbleRadius } from '../map/portCard'
+import { relaxOverlaps } from '../map/declutter'
 import { buildHolders, etaDisagreements } from '../lib/holders'
 import { useUsPorts } from '../hooks/useUsPorts'
 import { useLoadingPorts } from '../hooks/useLoadingPorts'
@@ -73,15 +74,6 @@ const PLACE_ZOOM_FILTER = ['<=', ['get', 'minzoom'], ['zoom']]
 // splits the difference: boxes ~73% of the old size, card ~46% wider on screen.
 const CARD_BASE_PX = 64
 
-// The curve now STARTS at the zoom cards start existing at (FIRST_LABEL_ZOOM = 3); below that a
-// port draws a bubble, which opts out of this scale entirely, so the old z2 stop was describing
-// something that no longer renders.
-//
-// Rebalanced because that extra width lands hardest where there is least room for it. The top of
-// the curve is UNCHANGED — 1.1 at z10, where a card sits over a single metro and has the space —
-// and the bottom is pulled down to 0.45, which puts the card at 28.8 CSS px the moment it appears.
-// That is not a guessed number: it is what the old single-stack card measured at the same zoom, so
-// the tri-arm card at its smallest costs no more screen than the thing it replaced.
 // A shallow ramp across the band where cards first appear, then flat.
 //
 // The low stop sits at FIRST_LABEL_ZOOM because that is where a card can first exist at all —
@@ -96,6 +88,7 @@ const CARD_SCALE_STOPS = [
   [3, 0.7], // 45 px — cards appear
   [4.6, 1.0], // 64 px, and flat from here up
 ]
+
 // Linear interpolation over a [zoom, value] stop table, clamped at both ends — the same thing
 // MapLibre's ['interpolate', ['linear'], ['zoom'], ...] does internally. Shared so the DEV readout
 // can report what a layer expression is currently evaluating to without duplicating the maths.
@@ -161,6 +154,46 @@ function sternOffset(bearing, mapBearing) {
 // Which form a port draws at this zoom. Above the first port label, the full isometric card;
 // below it, a bubble carrying the total. See portBubbleSvg for why.
 const cardMode = (zoom) => (zoom >= FIRST_LABEL_ZOOM ? 'card' : 'bubble')
+
+// Clear space to leave between two markers once they have been pushed apart, px.
+const DECLUTTER_GAP = 5
+
+// A card's art does not fill its box — the tri-arm footprint is wider than tall and there is
+// padding around it — so its collision radius is a fraction of the rendered size rather than half.
+const CARD_RADIUS_FACTOR = 0.42
+
+// Nudge overlapping port markers apart, in PIXELS, so two close ports stay two readable markers.
+//
+// DOM markers get none of the collision handling a symbol layer has (CLAUDE.md §3) — that is the
+// standing cost of drawing cards as markers, and this is what pays it. New York and Philadelphia
+// are 130 km apart: about 4 px at world zoom, where the bubbles are ~25 px across, so they sat
+// almost exactly on top of each other.
+//
+// The offset goes on the MARKER, never the lngLat: the marker still knows where its port really
+// is, and the displacement is presentation only. It also composes cleanly with our inner-element
+// transform, which MapLibre does not touch.
+function applyPortDeclutter(map, ports, cards) {
+  if (ports.length < 2) {
+    for (const port of ports) cards.get(port.key)?.marker.setOffset([0, 0])
+    return
+  }
+  const zoom = map.getZoom()
+  const asCard = cardMode(zoom) === 'card'
+  const scale = asCard ? cardScale(zoom) : bubbleScale(zoom)
+
+  const points = ports.map((p) => map.project(p.coordinates))
+  const radii = ports.map((p) =>
+    asCard
+      ? CARD_BASE_PX * scale * CARD_RADIUS_FACTOR
+      : bubbleRadius(p.statuses.length) * scale,
+  )
+  const offsets = relaxOverlaps(points, radii, DECLUTTER_GAP)
+  ports.forEach((port, i) => {
+    // Markers that do not overlap get exactly [0, 0] back, so a lone port is never displaced and
+    // every marker returns to its true position as soon as zoom separates them.
+    cards.get(port.key)?.marker.setOffset(offsets[i])
+  })
+}
 
 function syncPortCards(map, ports, cards, onPick) {
   const seen = new Set()
@@ -228,6 +261,8 @@ function syncPortCards(map, ports, cards, onPick) {
     card.marker.remove()
     cards.delete(key)
   }
+
+  applyPortDeclutter(map, ports, cards)
 }
 
 function buildFeatures(shipments, routesByKey, map, portPoints) {
@@ -351,6 +386,14 @@ export default function MapView({ shipments, onSelect }) {
       )
     }
     map.on('zoom', applyCardMode)
+
+    // De-cluster continuously, not on zoomend: the offsets are a function of how far apart two
+    // ports are ON SCREEN, which changes every frame of a zoom. Recomputing at the end would leave
+    // markers visibly overlapping through the whole gesture and then snap. Projecting a handful of
+    // points per frame is cheap; unlike the vessel pass this touches no GeoJSON.
+    const applyDeclutter = () => applyPortDeclutter(map, portsRef.current, cardsRef.current)
+    map.on('zoom', applyDeclutter)
+    map.on('move', applyDeclutter)
 
     // --- DEV instrumentation ---------------------------------------------------------------
     //
@@ -653,6 +696,8 @@ export default function MapView({ shipments, onSelect }) {
       for (const { marker } of cards.values()) marker.remove()
       cards.clear()
       map.off('zoom', applyCardScale)
+      map.off('zoom', applyDeclutter)
+      map.off('move', applyDeclutter)
       teardownDevTools?.()
       map.remove()
       mapRef.current = null

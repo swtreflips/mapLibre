@@ -291,7 +291,47 @@ there.
 
 ---
 
-## 7. Why DOM markers
+## 7. Close ports: pixel-space de-clutter
+
+`relaxOverlaps` in [src/map/declutter.js](src/map/declutter.js), applied by `applyPortDeclutter`
+in MapView.
+
+**DOM markers get none of the collision handling a symbol layer has** (CLAUDE.md §3). That is the
+standing cost of §8's trade, and this is what pays it: New York and Philadelphia are 130 km apart,
+which is about **4 px at world zoom** where the bubbles are ~25 px across — they sat almost exactly
+on top of each other.
+
+**The whole calculation is in screen space**, which makes it zoom-aware for free: zoom in, the same
+geographic gap becomes more pixels, the overlap resolves, and every offset falls to zero on its own.
+A marker sits on its true position the moment it is visually distinguishable. Measured, New
+York↔Philadelphia: 22 px apart at z1.6, 29 at z2.8, 45 at z3.2 (cards), 270 at z7 with no offset at
+all.
+
+**Relaxation, not a golden-angle spiral.** CLAUDE.md §5.3 sketches a spiral for de-stacking
+*vessels*, and a spiral is right there — ships in a cluster are interchangeable, so packing them
+evenly around a centroid is fine. Ports are not: they are named places, and a spiral assigns slots
+by index, so Philadelphia could be drawn north-east of New York. Pushing along the line between two
+markers preserves relative bearing, so the arrangement still reads as the geography it stands for.
+
+Two details that matter:
+
+- **The offset goes on the `Marker`, never the `lngLat`.** The marker still knows where its port
+  really is, the displacement is presentation only, and it composes cleanly with the inner-element
+  transform (§4) that MapLibre does not touch.
+- **It runs on `zoom` and `move`, not `zoomend`.** The offsets are a function of on-screen
+  separation, which changes every frame of a gesture; computing at the end would leave markers
+  visibly overlapping throughout and then snap. Projecting a handful of points per frame is cheap —
+  unlike the vessel pass, this touches no GeoJSON.
+
+Callers must pass ports in a **stable order**, or offsets flip between frames and the markers
+jitter in the bad sense. Coincident points are special-cased: without it the normalisation divides
+by zero and every position becomes `NaN`, which MapLibre renders as a silently missing marker.
+
+Tunables: `DECLUTTER_GAP` and `CARD_RADIUS_FACTOR` in MapView.
+
+---
+
+## 8. Why DOM markers
 
 This is a deliberate departure from CLAUDE.md §3's "prefer data-driven layers over DOM markers".
 That rule exists because one `Marker` *per vessel* does not scale. This is one per **port** — under
@@ -309,7 +349,7 @@ only reassigned when the stack actually changed, so refreshes do not rebuild the
 
 ---
 
-## 8. Cards are the click target
+## 9. Cards are the click target
 
 A card selects its port and fills the tray (CLAUDE.md §8) — the gap this file used to record as
 open. Choosing DOM markers is what made it straightforward, exactly as §7 predicted.
