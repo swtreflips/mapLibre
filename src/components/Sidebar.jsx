@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { parseYMD } from '../lib/vesselMath'
 import BrandMark from './BrandMark'
+import ContainerCard from './ContainerCard'
 import './Sidebar.css'
 
 // Snapshot counts over all shipments (CLAUDE.md §8).
@@ -35,6 +36,32 @@ function Row({ label, value }) {
   )
 }
 
+// THE TRAY. A holder — a vessel or a port — holds 1..N containers, and this is what it is
+// holding. The panel used to show one shipment because the map used to select one shipment; both
+// changed together (CLAUDE.md §8).
+function Tray({ holder }) {
+  const n = holder.containers.length
+  return (
+    <section className="panel panel--tray">
+      <header className="tray__head">
+        <p className="tray__kind">{holder.kind === 'vessel' ? 'Vessel' : 'Port'}</p>
+        <h3 className="tray__name">{holder.name}</h3>
+        <p className="tray__meta">
+          {holder.subtitle}
+          <span className="tray__count">
+            {n} container{n === 1 ? '' : 's'}
+          </span>
+        </p>
+      </header>
+      <div className="tray__list">
+        {holder.containers.map((c) => (
+          <ContainerCard key={c.shipment} shipment={c} />
+        ))}
+      </div>
+    </section>
+  )
+}
+
 export default function Sidebar({ shipments, selected }) {
   const stats = useMemo(() => computeStats(shipments), [shipments])
 
@@ -46,37 +73,22 @@ export default function Sidebar({ shipments, selected }) {
         <BrandMark tone="dark" />
       </div>
 
-      <section className="panel">
-        <h3>Selected Shipment</h3>
-        {selected ? (
+      {/* With nothing selected the snapshot IS the panel, rather than an empty placeholder above
+          a stats block. Selecting a holder replaces it wholesale — the two never stack. */}
+      {selected ? (
+        <Tray holder={selected} />
+      ) : (
+        <section className="panel">
+          <h3>Snapshot</h3>
           <div className="details">
-            <Row label="Shipment" value={selected.shipment} />
-            <Row label="Container" value={selected.container} />
-            <Row label="Vessel" value={selected.vessel} />
-            <Row label="Carrier" value={selected.confirmed_carrier} />
-            <Row label="Forwarder" value={selected.freight_forwarder} />
-            <Row label="Route" value={`${selected.port_of_loading} → ${selected.port_of_discharge}`} />
-            <Row label="Actual Shipping" value={selected.actual_shipping} />
-            <Row label="Expected Port Date" value={selected.expected_portdate} />
-            {selected.actual_portdate ? (
-              <Row label="Actual Port Date" value={selected.actual_portdate} />
-            ) : null}
-            <Row label="Arrival Notice" value={selected.arrival_notice} />
+            <Row label="Total Shipments" value={stats.total} />
+            <Row label="On Water" value={stats.onWater} />
+            <Row label="Arrived" value={stats.arrived} />
+            <Row label="Past Free Day" value={stats.pastFreeDay} />
           </div>
-        ) : (
-          <p className="placeholder">Click a ship to see its details…</p>
-        )}
-      </section>
-
-      <section className="panel">
-        <h3>Snapshot</h3>
-        <div className="details">
-          <Row label="Total Shipments" value={stats.total} />
-          <Row label="On Water" value={stats.onWater} />
-          <Row label="Arrived" value={stats.arrived} />
-          <Row label="Past Free Day" value={stats.pastFreeDay} />
-        </div>
-      </section>
+          <p className="placeholder">Click a vessel or a port to see the containers it holds…</p>
+        </section>
+      )}
     </aside>
   )
 }

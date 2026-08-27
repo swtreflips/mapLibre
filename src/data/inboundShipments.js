@@ -39,7 +39,7 @@ const inboundShipments = [
     Lastcy: 'New York, NY',
     route: 'Cartagena, Colombia - New York, NY',
     actual_shipping: '2026-06-08',
-    expected_portdate: '2026-08-28',
+    expected_portdate: '2026-09-01',
     actual_portdate: '',
     appointment_date: '',
     arrival_notice: 'no',
@@ -186,6 +186,58 @@ const inboundShipments = [
     arrival_notice: 'yes',
     last_freeday: daysAhead(2),
     items: [{ item: 'TGET-NK8510', qty: 480, vendor: 'Paras Webcoat Pvt Ltd' }],
+  },
+  // TEST: two more containers on a vessel that already has one, so CAUTIN holds 3 and the vessel
+  // tray has something to show. Every en-route vessel held exactly one container while the map's
+  // count badge claimed 7 — see CLAUDE.md §8.
+  //
+  // Same vessel AND same route is what makes the three one holder. Their dates must also track
+  // INBSHIP3904's, because a ship is in one place: if these drift apart, holders.js positions the
+  // vessel at the LATEST of them and logs the disagreement, which is the warning you will see.
+  {
+    shipment: 'INBSHIP3951',
+    container: 'HLBU2201884',
+    vessel: 'CAUTIN',
+    confirmed_carrier: 'HPL',
+    freight_forwarder: 'Constellation Logistics LLC',
+    drayage_provider: 'Unis Transportation, LLC',
+    hbl: 'HLCUSGN2603ARQS1',
+    mbl: 'HLCUSGN2603ARQS1',
+    port_of_loading: 'Cartagena, Colombia',
+    port_of_discharge: 'New York, NY',
+    Lastcy: 'New York, NY',
+    route: 'Cartagena, Colombia - New York, NY',
+    actual_shipping: '2026-06-08',
+    expected_portdate: '2026-09-01', // tracks INBSHIP3904 — same voyage
+    actual_portdate: '',
+    appointment_date: '',
+    arrival_notice: 'no',
+    last_freeday: '',
+    items: [
+      { item: 'PECO-FH12717-1/6-A-V3', qty: 820, vendor: 'Goldsun Printing And Packaging Jsc' },
+      { item: 'TGET-NK8510', qty: 240, vendor: 'Paras Webcoat Pvt Ltd' },
+    ],
+  },
+  {
+    shipment: 'INBSHIP3952',
+    container: 'HLBU2318007',
+    vessel: 'CAUTIN',
+    confirmed_carrier: 'HPL',
+    freight_forwarder: 'Constellation Logistics LLC',
+    drayage_provider: '',
+    hbl: 'HLCUSGN2603ARQS2',
+    mbl: 'HLCUSGN2603ARQS1',
+    port_of_loading: 'Cartagena, Colombia',
+    port_of_discharge: 'New York, NY',
+    Lastcy: 'New York, NY',
+    route: 'Cartagena, Colombia - New York, NY',
+    actual_shipping: '2026-06-08',
+    expected_portdate: '2026-09-01', // tracks INBSHIP3904 — same voyage
+    actual_portdate: '',
+    appointment_date: '',
+    arrival_notice: 'yes',
+    last_freeday: '',
+    items: [{ item: 'KRSP-NK161118', qty: 1180, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' }],
   },
 ]
 

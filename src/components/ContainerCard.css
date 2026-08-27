@@ -1,0 +1,241 @@
+/*
+  Container card. Structure only — every colour, radius, shadow and font comes from the shared
+  `linen` skin, which is the same file RatesApp loads. That is what makes the two look related
+  without this file knowing anything about that app: they re-skin together.
+
+  RatesApp expresses the same language through Tailwind utilities
+  (`rounded-2xl border border-fog-200 bg-white shadow-card`); here it is written out longhand
+  against the identical variables.
+*/
+
+.ccard {
+  position: relative;
+  /* Do NOT let the tray's flex column shrink a card. Flex items default to flex-shrink: 1, so an
+     overflowing column squashes every child instead of scrolling — which silently cut ~70px off
+     each card here, taking the appointment row and the footer with it. The list scrolls; the
+     cards keep their height. */
+  flex: 0 0 auto;
+  /* Clips the status bar to the rounded corners. Combined with the shrink above it is safe;
+     without it, it would have hidden the squashing rather than caused it. */
+  overflow: hidden;
+  border: 1px solid rgb(var(--c-fog-200));
+  border-radius: var(--radius-2xl, 14px);
+  background: #fff;
+  box-shadow: var(--shadow-card);
+  padding: 12px 14px 10px;
+  transition: box-shadow var(--motion-fast, 140ms) var(--ease-out-expo, ease),
+    transform var(--motion-fast, 140ms) var(--ease-out-expo, ease);
+}
+
+.ccard:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-card-hover, var(--shadow-card));
+}
+
+/* The status bar. 2px across the top at 70% opacity, exactly the accent RatesApp's StatCard
+   carries — it is the one piece of the card that is allowed to be loud, because it is the field
+   you scan a tray for. */
+.ccard::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  opacity: 0.7;
+  background: var(--ccard-tone);
+}
+
+/* Container status tones, matching the isometric card on the map (src/map/portCard.js) so a red
+   pile at a port and a red chip in its tray are the same red. Separated by LIGHTNESS as well as
+   hue; the chip's word is what carries the meaning either way. */
+.ccard--red {
+  --ccard-tone: #c0392b;
+  --ccard-chip-bg: #fdf0ee;
+}
+.ccard--blue {
+  --ccard-tone: #3b7dd8;
+  --ccard-chip-bg: #eef4fd;
+}
+.ccard--green {
+  --ccard-tone: #3e9a63;
+  --ccard-chip-bg: #ecf7f0;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────────────────── */
+
+.ccard__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  /* It is a <button> for keyboard reach, not for looks — strip the control chrome. */
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.ccard__head:focus-visible {
+  outline: 2px solid rgb(var(--c-signal-400));
+  outline-offset: 3px;
+  border-radius: var(--radius-lg);
+}
+
+/* WEIGHT 500 IS THE CEILING for anything in --font-mono: index.html requests DM Mono at 400 and
+   500 only, so 600/700 gets synthesised — the browser smears the 400 glyph, which at 9px reads as
+   a malformed letter (capital S worst). If a mono label needs more presence, add size or tracking,
+   not weight, or load the weight first. */
+.ccard__id {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: rgb(var(--c-harbor-900));
+}
+
+.ccard__chip {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--ccard-chip-bg);
+  box-shadow: inset 0 0 0 1px var(--ccard-tone);
+  color: var(--ccard-tone);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  white-space: nowrap;
+}
+
+.ccard__sub {
+  margin: 3px 0 0;
+  font-size: 11px;
+  color: rgb(var(--c-fog-500));
+}
+
+.ccard__dot {
+  margin: 0 5px;
+  color: rgb(var(--c-fog-300));
+}
+
+/* ── Fact grid ──────────────────────────────────────────────────────────────────────── */
+
+.ccard__facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  margin: 10px 0 0;
+  padding: 10px 0 0;
+  border-top: 1px solid rgb(var(--c-fog-100));
+}
+
+.ccard__facts--more {
+  border-top-style: dashed;
+}
+
+.ccard__fact--wide {
+  grid-column: 1 / -1;
+}
+
+/* Micro-label: mono, uppercase, wide tracking, muted — the same treatment RatesApp gives its
+   section headings and table headers, at the smaller of its two sizes. */
+.ccard__fact dt {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: rgb(var(--c-fog-400, var(--c-fog-500)));
+}
+
+.ccard__fact dd {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: rgb(var(--c-harbor-800));
+  /* Dates and numbers line up down the tray rather than jittering column to column. */
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.ccard__muted {
+  margin-left: 6px;
+  font-size: 10.5px;
+  color: rgb(var(--c-fog-500));
+}
+
+.ccard__arrow {
+  color: rgb(var(--c-fog-400, var(--c-fog-500)));
+}
+
+/* ── Expanded items ─────────────────────────────────────────────────────────────────── */
+
+.ccard__items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ccard__items li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0 8px;
+  padding: 3px 0;
+}
+
+.ccard__items li + li {
+  border-top: 1px solid rgb(var(--c-fog-100));
+}
+
+.ccard__item-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgb(var(--c-harbor-900));
+}
+
+.ccard__item-qty {
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: rgb(var(--c-harbor-800));
+}
+
+.ccard__item-vendor {
+  grid-column: 1 / -1;
+  font-size: 10.5px;
+  color: rgb(var(--c-fog-500));
+}
+
+/* ── Foot ───────────────────────────────────────────────────────────────────────────── */
+
+.ccard__foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid rgb(var(--c-fog-100));
+  font-size: 10.5px;
+  color: rgb(var(--c-fog-500));
+}
+
+.ccard__more {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: rgb(var(--c-signal-600));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ccard {
+    transition: none;
+  }
+  .ccard:hover {
+    transform: none;
+  }
+}

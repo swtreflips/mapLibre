@@ -100,3 +100,66 @@
   text-align: right;
   word-break: break-word;
 }
+
+/* ── The tray ────────────────────────────────────────────────────────────────────────
+   A holder's containers, one card each. The panel scrolls, its header does not — with a dozen
+   cards you otherwise lose track of which port you are looking at while scrolling. */
+.panel--tray {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden; /* the list owns the scroll, so the sticky header has something to stick to */
+}
+
+.tray__head {
+  flex: 0 0 auto;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid rgb(var(--c-fog-200));
+  background: rgb(var(--c-fog-50));
+}
+
+/* Micro-label, same treatment as the cards' field labels so the header reads as their parent. */
+.tray__kind {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500; /* DM Mono loads 400/500 only — see ContainerCard.css */
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: rgb(var(--c-fog-400, var(--c-fog-500)));
+}
+
+.tray__name {
+  margin: 3px 0 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: rgb(var(--c-harbor-950));
+}
+
+.tray__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: rgb(var(--c-fog-500));
+}
+
+.tray__count {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  color: rgb(var(--c-harbor-800));
+}
+
+.tray__list {
+  flex: 1;
+  min-height: 0; /* without this the flex child refuses to shrink and the panel scrolls instead */
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}

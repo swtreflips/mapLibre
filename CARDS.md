@@ -313,9 +313,13 @@ only reassigned when the stack actually changed, so refreshes do not rebuild the
 
 ---
 
-## 8. Known gap
+## 8. Cards are the click target
 
-**Cards are not interactive** (`pointer-events: none`). Clicking a container used to fill the
-sidebar with that shipment; one card standing for N containers has no single shipment to show — the
-same collision the vessel count badge hit. The resolution is the port summary in CLAUDE.md §8, and
-choosing DOM markers is what makes wiring it straightforward.
+A card selects its port and fills the tray (CLAUDE.md §8) — the gap this file used to record as
+open. Choosing DOM markers is what made it straightforward, exactly as §7 predicted.
+
+**The hit test lives on the SHAPES, not the `<svg>`.** `pointer-events: auto` on an `<svg>` root
+makes its whole border box clickable like any replaced element; measured, that let an empty corner
+of the 64px marker swallow a click meant for the map. `visiblePainted` only governs SVG *child*
+shapes, so the root stays `none` and each polygon (and the bubble's circle and numeral) opts in.
+Only painted containers take the click; the gaps between arms still belong to the map.

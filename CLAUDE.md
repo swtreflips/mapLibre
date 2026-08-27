@@ -396,43 +396,74 @@ Decide state from today's local-midnight date:
 |---|---|---|---|---|
 | **Future** | `startDate > today` | `polCoords` + spiral offset | container | blue |
 | **Arrived** | `actual_portdate` set and `≤ today` | `podCoords` + spiral offset | container | `appointment_date` set → **green**; else days-at-CY `> 3` → **red**; else **blue** |
-| **En route** | otherwise | interpolated `vesselPos` (estimated, static between refreshes) | ship | `arrival_notice === "yes"` → **green**; else **black** |
+| **En route** | otherwise | interpolated `vesselPos` (estimated, static between refreshes) | ship | **any** container aboard with `arrival_notice === "yes"` → **green**; else default |
+
+The hull is one object holding many containers, so arrival notice is an *any* over the group — the
+per-container breakdown is what the tray is for (§8).
 
 - days-at-CY = `floor((today - actual_portdate) / 1 day)`.
 - transit days (future popup) = `floor((endDate - startDate) / 1 day)`;
   remaining (en-route popup) = `floor((endDate - today) / 1 day)`.
 
-## 8. Sidebar & stats
+## 8. Holders, the tray & stats
 
-Two stacked panels in a 380px-wide sidebar. Implemented as
-[Sidebar.jsx](src/components/Sidebar.jsx), driven by `selected` state lifted to
-[App.jsx](src/App.jsx) and updated on feature click.
+**The unit of interaction is a HOLDER, not a container.** A container is always somewhere, and that
+somewhere is either a **vessel** carrying it or a **port** it is sitting at. Both hold 1..N.
+Clicking either fills the sidebar with a **tray** — one card per container it holds.
+[src/lib/holders.js](src/lib/holders.js) owns the grouping and knows nothing about the map.
 
-- **Selected shipment** (`updateSidebarSelected` in the original): shipment, container,
-  vessel, carrier, `POL → POD`, actual shipping, expected port date, actual port date
-  (if any), arrival notice.
-- **Snapshot stats** (`updateSidebarStats`) — counts over all shipments:
-  - **Total** = number of shipments.
-  - **On Water** = `actual_shipping` and `expected_portdate` set, `actual_portdate` empty,
-    and `actual_shipping ≤ today ≤ expected_portdate`.
-  - **Arrived** = `actual_portdate` is set.
-  - **Past Free Day** = `last_freeday` set and `last_freeday < today`.
+| holder | grouped by | anchored at |
+|---|---|---|
+| vessel | `vessel + route` — a **voyage**, not a name; one ship sails many lanes and the route supplies the polyline | interpolated position (§5.1) |
+| port | `port_of_discharge` | the port's own coordinate (§5.4) |
 
-**Interaction** (implemented in [MapView.jsx](src/components/MapView.jsx); details fill the
-**sidebar**, not a popup):
-- **One selection at a time**, click to **toggle** (clicking the selected feature deselects;
-  clicking empty water deselects). Selecting **flies to** the feature
-  (`flyTo`, `zoom = max(current, SELECT_ZOOM)` — only zooms in, never out).
-- **En-route ships:** selecting draws a dashed **remaining-route** line (`vesselPos → POD`) via
-  a `line` layer (`line-dasharray`) whose GeoJSON source is swapped on click.
-- **Arrived containers:** selecting fills the sidebar + flies to, but draws **no** dashed line.
+**One ETA per voyage.** Rows on the same vessel+route can disagree; a ship is in one place, so the
+group takes the **latest** `expected_portdate` (a container cannot arrive before its ship) and the
+DEV log names the disagreement rather than hiding it.
 
-**Planned — port summary (not built):** clicking an individual container is low-value and
-fiddly (overlapping icon hit-boxes). Intended model: **click a port → aggregate summary** of
-its containers (total, aging >3 days at CY, recently arrived, has-appointment, past-free-day,
-oldest dwell, shipment list). Map = geographic aggregate ("what's piling up where"); search =
-individual lookup. Ships stay individually selectable. Cheapest first step: route any
-container/port click to the port summary (dissolves the click-ambiguity).
+**One feature per holder**, so a vessel carrying three containers is one icon whose badge reads 3.
+That badge was a hardcoded `MOCK_CONTAINER_COUNT = 7` for several iterations while every vessel in
+the data held exactly 1 — grouping is what made it honest.
+
+### The tray — [Sidebar.jsx](src/components/Sidebar.jsx), [ContainerCard.jsx](src/components/ContainerCard.jsx)
+
+- **Nothing selected** → the Snapshot counts below. Selecting a holder replaces them; the two
+  never stack.
+- **Holder selected** → header (kind · name · count) over a scrolling list of container cards.
+  Cards show container no + status chip, shipment/vessel, route, dates, free day and appointment,
+  with an items summary; clicking one **expands it in place** for carrier, forwarder, HBL/MBL and
+  the item lines.
+- **The chip carries a WORD, not just a tone** (`AGING 83D`, `BOOKED`, `ON WATER`). On the map,
+  which arm a container sits in encodes status independently of hue (CARDS.md §2); a flat tray has
+  no arms, so the label does that job there. `containerStatus()` in
+  [vesselMath.js](src/lib/vesselMath.js) returns both; `containerColor` is now a wrapper on it.
+- **Family with RatesApp, not a copy.** Both apps load the *same* `linen` skin, so the resemblance
+  is token + shape reuse — 2xl radius, fog-200 hairline, white ground, `--shadow-card`, a 2px
+  status bar, mono uppercase micro-labels, tabular numerals. RatesApp reaches those variables
+  through Tailwind; this app writes them longhand. They re-skin together.
+- **`--font-mono` (DM Mono) is loaded at 400/500 ONLY** ([index.html](index.html)). Anything
+  heavier is synthesised — the browser smears the 400 glyph, which at 9px reads as a malformed
+  letter (capital S worst). Add size or tracking for emphasis, not weight.
+
+### Snapshot stats (`computeStats`) — counts over all shipments
+
+- **Total** = number of shipments.
+- **On Water** = `actual_shipping` and `expected_portdate` set, `actual_portdate` empty,
+  and `actual_shipping ≤ today ≤ expected_portdate`.
+- **Arrived** = `actual_portdate` is set.
+- **Past Free Day** = `last_freeday` set and `last_freeday < today`.
+
+### Map interaction ([MapView.jsx](src/components/MapView.jsx))
+
+- **One selection at a time**, click to **toggle**; clicking empty water deselects. Selecting
+  **flies to** the holder (`flyTo`, `zoom = max(current, SELECT_ZOOM)` — only zooms in).
+- **En-route vessels:** selecting draws the dashed **remaining-route** line (position → POD).
+- **Ports:** selecting fills the tray and flies to; no dashed line.
+- **Port cards are DOM markers, so hit testing goes on the SVG SHAPES, not the `<svg>`.**
+  `pointer-events: auto` on an `<svg>` root makes its whole border box clickable like any replaced
+  element — measured, a click on an empty corner of the 64px marker hit the card instead of panning
+  the map. `visiblePainted` only governs SVG *child* shapes, so the root stays `none` and each
+  polygon/circle/glyph opts in.
 
 ## 9. What to DROP from the Leaflet version
 

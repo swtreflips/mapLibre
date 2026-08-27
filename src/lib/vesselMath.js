@@ -83,14 +83,54 @@ export function applyContainerOffset([lng, lat], zoom, index = 0) {
   return [lng + Math.cos(angle) * j, lat + Math.sin(angle) * j]
 }
 
+const DAY = 86400000
+const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
+const isSet = (v) => Boolean(v && v.trim() !== '')
+
+// Whole days a container has been sitting at the yard, or null if it has not landed.
+export function daysAtCY(s, today = new Date()) {
+  const arrived = parseYMD(s.actual_portdate)
+  return arrived ? Math.floor((midnight(today) - arrived) / DAY) : null
+}
+
 // Container color rule for the ARRIVED state (CLAUDE.md §7):
 // appointment set -> green; else days-at-CY > 3 -> red; else blue.
 export function containerColor(s, today = new Date()) {
-  if (s.appointment_date && s.appointment_date.trim() !== '') return 'green'
-  const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-  const arrived = parseYMD(s.actual_portdate)
-  const daysAtCY = arrived ? Math.floor((todayMid - arrived) / 86400000) : 0
-  return daysAtCY > 3 ? 'red' : 'blue'
+  return containerStatus(s, today).tone
+}
+
+// The same rule as containerColor, but carrying a WORD as well as a tone, and extended to cover
+// every state rather than only `arrived`.
+//
+// The label is not decoration. On the map, which arm a container sits in encodes its status
+// independently of hue (CARDS.md §2) — that redundancy is what makes the card readable to a
+// colour-blind reader. A tray is a flat list with no arms, so the word has to do that job there.
+// Never render the tone without the label.
+//
+// `tone` stays one of red / blue / green so the card geometry and the tray share one vocabulary;
+// en-route containers are not drawn on a card, so they get a tone only for the chip.
+export function containerStatus(s, today = new Date()) {
+  if (shipmentState(s, today) === 'future') {
+    return { tone: 'blue', label: 'NOT SAILED', detail: `ETD ${s.actual_shipping || '—'}` }
+  }
+  if (shipmentState(s, today) === 'enroute') {
+    const end = parseYMD(s.expected_portdate)
+    const left = end ? Math.floor((end - midnight(today)) / DAY) : null
+    return {
+      tone: 'blue',
+      label: 'ON WATER',
+      // Negative means the forwarder's ETA has already passed and no arrival was reported — worth
+      // saying out loud rather than rendering as a nonsense countdown.
+      detail: left == null ? '—' : left >= 0 ? `${left}d to ETA` : `${-left}d past ETA`,
+    }
+  }
+  // Arrived containers carry NO detail: the chip already states the dwell and the card's own
+  // Appointment / Last-free-day rows say the rest. Repeating it beside the date just wrapped the
+  // line and said the same thing twice.
+  const days = daysAtCY(s, today) ?? 0
+  if (isSet(s.appointment_date)) return { tone: 'green', label: 'BOOKED', detail: '' }
+  if (days > 3) return { tone: 'red', label: `AGING ${days}D`, detail: '' }
+  return { tone: 'blue', label: days === 0 ? 'LANDED TODAY' : `AT YARD ${days}D`, detail: '' }
 }
 
 // Three-state classification (CLAUDE.md §7). Today defaults to now's local midnight.

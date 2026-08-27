@@ -26,7 +26,10 @@
    we set would be silently discarded. Ours goes on the inner element below. */
 .port-card {
   line-height: 0; /* kill the inline-descender gap under the svg, which would lift the stack */
-  pointer-events: none; /* cards are not interactive yet — see CLAUDE.md §8 port summary */
+  /* The BOX stays transparent to the pointer and the ART below takes clicks. The marker element is
+     64px square but the containers occupy a fraction of it, so making the whole box clickable
+     would swallow drags on empty map beside a card. */
+  pointer-events: none;
 }
 
 .port-card__inner {
@@ -51,6 +54,24 @@
 .port-card__inner--bubble {
   transform: scale(var(--bubble-scale, 1));
   line-height: 0;
+}
+
+/* HIT TESTING GOES ON THE SHAPES, NOT THE <svg>.
+   `pointer-events: auto` on an <svg> ROOT makes its whole border box take clicks like any
+   replaced element — measured, a click on an empty corner of the 64px marker box hit the card
+   instead of panning the map. `visiblePainted` only governs SVG CHILD shapes, so the root stays
+   transparent and each polygon/circle/glyph opts in. Now only the drawn container faces and the
+   disc itself are clickable, and the gaps between arms still belong to the map. */
+.port-card__svg,
+.port-bubble__svg {
+  pointer-events: none;
+}
+
+.port-card__svg polygon,
+.port-bubble__svg circle,
+.port-bubble__svg text {
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .port-card__svg {

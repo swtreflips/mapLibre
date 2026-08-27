@@ -5,17 +5,15 @@ import './MapView.css'
 import { useRoutes } from '../hooks/useRoutes'
 import LoadingScreen from './LoadingScreen'
 import {
-  normalizeKey,
-  parseYMD,
   computeProgress,
   positionAtProgress,
   computeBearing,
-  shipmentState,
   containerColor,
 } from '../lib/vesselMath'
 import { buildBasemapStyle, mapPalette, FONT_REGULAR, FONT_BOLD } from '../map/basemapStyle'
 import { placesFC, buildPlacesFC, portPointsByKey, FIRST_LABEL_ZOOM } from '../data/places'
 import { portCardSvg, portCardLabel, portBubbleSvg } from '../map/portCard'
+import { buildHolders, etaDisagreements } from '../lib/holders'
 import { useUsPorts } from '../hooks/useUsPorts'
 import { useLoadingPorts } from '../hooks/useLoadingPorts'
 
@@ -134,17 +132,14 @@ const computeMinZoom = (width) => Math.log2(width / 512)
 
 const EMPTY_FC = { type: 'FeatureCollection', features: [] }
 
-// MOCK. Every vessel claims 7 containers so the badge can be built and judged before the grouping
-// logic exists. The real version changes what a FEATURE IS: group en-route shipments by vessel and
-// emit one feature per group with count = group.length, instead of one per shipment. Note that
-// breaks the sidebar's 1:1 selection (vesselsByIdRef maps one id to one shipment) — one icon
-// standing for 7 containers has no single shipment to show. See CLAUDE.md §8.
-const MOCK_CONTAINER_COUNT = 7
-
-// Build ship + container FeatureCollections and an id->{meta, remaining} lookup.
-//   en-route -> ship, interpolated along the route (remaining = dashed-line coords)
-//   arrived  -> counted into its discharge port's card, at the PORT's coordinate, remaining=null
-//   future   -> deferred
+// Build the vessel FeatureCollection, the port cards, and a key->holder lookup.
+//   vessel holder -> one ship icon, interpolated along the route (remaining = dashed-line coords)
+//   port holder   -> one card at the PORT's coordinate, remaining = null
+//   future        -> deferred
+//
+// ONE FEATURE PER HOLDER, not per shipment. A vessel carrying three containers is one ship on the
+// water, so it is one icon whose count badge says 3 — which is also what makes that badge honest.
+// It read a hardcoded 7 for several iterations while every vessel in the data held exactly 1.
 // Unit vector pointing ASTERN, in text-offset's frame: ems, +x right, +y down.
 //
 // `mapBearing` has to come off the vessel's bearing because text-offset is SCREEN space, whereas
@@ -168,7 +163,7 @@ function sternOffset(bearing, mapBearing) {
 // below it, a bubble carrying the total. See portBubbleSvg for why.
 const cardMode = (zoom) => (zoom >= FIRST_LABEL_ZOOM ? 'card' : 'bubble')
 
-function syncPortCards(map, ports, cards) {
+function syncPortCards(map, ports, cards, onPick) {
   const seen = new Set()
   const mode = cardMode(map.getZoom())
 
@@ -194,12 +189,21 @@ function syncPortCards(map, ports, cards) {
       el.className = 'port-card'
       const inner = document.createElement('div')
       el.appendChild(inner)
+      // The click target is the PAINTED ART, not this box. `.port-card` keeps pointer-events:none
+      // and the <svg> re-enables them, so SVG's default `visiblePainted` gives the hit test the
+      // container silhouette itself — a click on a transparent corner of the 64px box still
+      // reaches the map and pans it. Bound once here; the handler reads card.key at call time so
+      // it survives every innerHTML swap.
+      el.addEventListener('click', (ev) => {
+        ev.stopPropagation() // otherwise the map's own click handler clears the selection again
+        onPick?.(port.key)
+      })
       // Both forms centre on the port now, so there is nothing to rebuild when the zoom threshold
       // is crossed — only the class and the markup change.
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat(port.coordinates)
         .addTo(map)
-      card = { el, inner, marker, html: null, mode: null }
+      card = { el, inner, marker, html: null, mode: null, key: port.key }
       cards.set(port.key, card)
     }
 
@@ -229,80 +233,52 @@ function syncPortCards(map, ports, cards) {
 
 function buildFeatures(shipments, routesByKey, map, portPoints) {
   const mapBearing = map.getBearing()
+  const { vessels, ports: portHolders } = buildHolders(shipments, routesByKey, portPoints)
   const shipFeatures = []
+  // holder key -> { holder, remaining }. Selection is per HOLDER now, not per shipment: one icon
+  // standing for three containers has no single shipment to show, which is exactly why the sidebar
+  // became a tray.
   const byId = new Map()
-  // Arrived shipments grouped by DISCHARGE PORT (regardless of route / port of loading).
-  const arrivedByPod = new Map() // podKey -> { routeEnd:[lng,lat]|null, list:[shipment] }
 
-  for (const s of shipments) {
-    const state = shipmentState(s)
-
-    // ARRIVED containers are handled BEFORE the route lookup, because they no longer need one:
-    // a container sitting at a port is placed by the port, not by how it got there. That also
-    // closes a silent drop — port names in this data are not normalised (CLAUDE.md §4), so a lane
-    // whose route failed to join used to take its arrived containers down with it.
-    if (state === 'arrived') {
-      const podKey = normalizeKey(s.port_of_discharge)
-      if (!podKey) continue
-      if (!arrivedByPod.has(podKey)) arrivedByPod.set(podKey, { routeEnd: null, list: [] })
-      const group = arrivedByPod.get(podKey)
-      // Kept only as a fallback for a port with no row in `us_ports` / `world_ports`. Taken from
-      // whichever shipment first offers a usable route, not necessarily the first in the group.
-      if (!group.routeEnd) {
-        const c = routesByKey.get(normalizeKey(s.route))
-        if (c && c.length >= 2) group.routeEnd = c[c.length - 1]
-      }
-      group.list.push(s)
-      continue
-    }
-
-    const coords = routesByKey.get(normalizeKey(s.route))
-    if (!coords || coords.length < 2) continue
-
-    if (state === 'enroute') {
-      const progress = computeProgress(parseYMD(s.actual_shipping), parseYMD(s.expected_portdate))
-      const { pos, cut } = positionAtProgress(coords, progress)
-      if (!pos) continue
-      const next = coords[Math.min(cut + 1, coords.length - 1)]
-      const bearing = computeBearing(pos, next)
-      const color = s.arrival_notice?.toLowerCase() === 'yes' ? 'green' : 'default'
-      byId.set(s.shipment, { meta: s, remaining: [pos, ...coords.slice(cut + 1)] })
-      shipFeatures.push({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: pos },
-        properties: {
-          shipment: s.shipment,
-          color,
-          rotation: bearing - 90,
-          count: MOCK_CONTAINER_COUNT,
-          textOffset: sternOffset(bearing, mapBearing),
-        },
-      })
-    }
+  for (const v of vessels) {
+    // The voyage's own dates, not any one container's — a ship is in one place, so rows that
+    // disagree resolve to one position rather than smearing the vessel across the ocean.
+    const progress = computeProgress(v.etd, v.eta)
+    const { pos, cut } = positionAtProgress(v.coords, progress)
+    if (!pos) continue
+    const next = v.coords[Math.min(cut + 1, v.coords.length - 1)]
+    const bearing = computeBearing(pos, next)
+    // Arrival notice is a per-container fact but the hull is one object, so ANY container having
+    // it turns the ship green. That matches what the colour is for — "something has landed at the
+    // far end" — and a per-container breakdown is what the tray is for.
+    const notified = v.containers.some((c) => c.arrival_notice?.toLowerCase() === 'yes')
+    byId.set(v.key, { holder: v, remaining: [pos, ...v.coords.slice(cut + 1)] })
+    shipFeatures.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: pos },
+      properties: {
+        holder: v.key,
+        color: notified ? 'green' : 'default',
+        rotation: bearing - 90,
+        count: v.containers.length,
+        textOffset: sternOffset(bearing, mapBearing),
+      },
+    })
   }
 
   // ONE CARD PER PORT, not one icon per container. The old golden-angle spiral fanned every
   // container around its port, which answered the wrong question — you counted scattered boxes
   // instead of reading a port's load at a glance, and a busy port became a smear.
-  //
-  // arrivedByPod already did the grouping; only what gets emitted changes. Sort by shipment id so
-  // a container keeps its slot in the stack across refreshes rather than shuffling.
   const ports = []
-  for (const [podKey, { routeEnd, list }] of arrivedByPod) {
-    // THE PORT'S OWN COORDINATE — the very point its label is drawn at. The sea route's last
-    // vertex is only a fallback for a port with no row in the ports tables, since that endpoint is
-    // a node in a shipping-lane graph rather than the terminal itself and can sit visibly offshore.
-    const anchored = portPoints?.get(podKey)
-    const coordinates = anchored ?? routeEnd
-    if (!coordinates) continue // neither a port row nor a route: nothing to anchor to
-    list.sort((a, b) => (a.shipment < b.shipment ? -1 : a.shipment > b.shipment ? 1 : 0))
-    for (const s of list) byId.set(s.shipment, { meta: s, remaining: null })
+  for (const p of portHolders) {
+    if (!p.coordinates) continue // neither a port row nor a route: nothing to anchor to
+    byId.set(p.key, { holder: p, remaining: null })
     ports.push({
-      key: podKey,
-      name: list[0]?.port_of_discharge ?? podKey,
-      coordinates,
-      anchored: Boolean(anchored),
-      statuses: list.map((s) => containerColor(s)),
+      key: p.key,
+      name: p.name,
+      coordinates: p.coordinates,
+      anchored: Boolean(portPoints?.get(p.key)),
+      statuses: p.containers.map((c) => containerColor(c)),
     })
   }
 
@@ -325,6 +301,10 @@ export default function MapView({ shipments, onSelect }) {
   const portsRef = useRef([])
   const cardModeRef = useRef(null)
   const selectedIdRef = useRef(null)
+  // Port cards are DOM markers created outside the map's own event system, so they cannot go
+  // through map.on('click', layer, ...). This ref lets a marker reach the selection handler that
+  // is defined inside the one-time init effect.
+  const selectHolderRef = useRef(null)
   const [mapReady, setMapReady] = useState(false)
 
   // `loading` was being discarded, so a slow route fetch was indistinguishable from a broken
@@ -367,7 +347,9 @@ export default function MapView({ shipments, onSelect }) {
       const mode = cardMode(map.getZoom())
       if (mode === cardModeRef.current) return
       cardModeRef.current = mode
-      syncPortCards(map, portsRef.current, cardsRef.current)
+      syncPortCards(map, portsRef.current, cardsRef.current, (key) =>
+        selectHolderRef.current?.(key),
+      )
     }
     map.on('zoom', applyCardMode)
 
@@ -615,31 +597,32 @@ export default function MapView({ shipments, onSelect }) {
 
       // Toggle selection (one at a time, ships + containers). Selecting flies to center+zoom;
       // ships also draw their dashed remaining route (containers have remaining=null).
-      const handleFeatureClick = (e) => {
-        const feature = e.features?.[0]
-        const id = feature?.properties?.shipment
-        if (!id) return
-
-        if (selectedIdRef.current === id) {
+      // Select a HOLDER — a vessel or a port — and hand it to the tray. One at a time, click to
+      // toggle. Ports arrive here from a DOM marker rather than a rendered feature, so the
+      // fly-to target comes from the holder rather than the event.
+      const selectHolder = (key) => {
+        if (!key) return
+        if (selectedIdRef.current === key) {
           clearSelection()
           return
         }
-
-        const entry = vesselsByIdRef.current.get(id)
+        const entry = vesselsByIdRef.current.get(key)
         if (!entry) return
-        selectedIdRef.current = id
-        onSelect?.(entry.meta)
+        selectedIdRef.current = key
+        onSelect?.(entry.holder)
         map.getSource('remaining-route').setData(
           entry.remaining
             ? { type: 'Feature', geometry: { type: 'LineString', coordinates: entry.remaining }, properties: {} }
             : EMPTY_FC,
         )
-        map.flyTo({
-          center: feature.geometry.coordinates,
-          zoom: Math.max(map.getZoom(), SELECT_ZOOM),
-          duration: 800,
-        })
+        const center = entry.holder.coordinates ?? entry.remaining?.[0]
+        if (center) {
+          map.flyTo({ center, zoom: Math.max(map.getZoom(), SELECT_ZOOM), duration: 800 })
+        }
       }
+      selectHolderRef.current = selectHolder
+
+      const handleFeatureClick = (e) => selectHolder(e.features?.[0]?.properties?.holder)
 
       for (const layer of ['vessels']) {
         map.on('mouseenter', layer, () => {
@@ -706,7 +689,7 @@ export default function MapView({ shipments, onSelect }) {
       portsRef.current = ports
       cardModeRef.current = cardMode(map.getZoom())
       map.getSource('vessels')?.setData(shipFC)
-      syncPortCards(map, ports, cardsRef.current)
+      syncPortCards(map, ports, cardsRef.current, (key) => selectHolderRef.current?.(key))
 
       // Keep the dashed line in sync if the selected ship still exists (containers have none).
       const selId = selectedIdRef.current
@@ -724,9 +707,17 @@ export default function MapView({ shipments, onSelect }) {
         // naming, because the card still draws and the miss would otherwise be invisible.
         const adrift = ports.filter((p) => !p.anchored).map((p) => p.name)
         console.log(
-          `[MapView] ${shipFC.features.length} ships, ${ports.length} port cards (${boxes} containers)` +
+          `[MapView] ${shipFC.features.length} vessel holders, ${ports.length} port cards (${boxes} containers)` +
             (adrift.length ? ` — ${adrift.length} not matched to a port row: ${adrift.join(', ')}` : ''),
         )
+        // Containers on one voyage carrying different ETAs. The vessel is drawn at the latest of
+        // them (holders.js), so this is a data fault being resolved, not lost — say so.
+        for (const d of etaDisagreements([...byId.values()].map((e) => e.holder).filter((h) => h.kind === 'vessel'))) {
+          console.warn(
+            `[MapView] ${d.vessel} (${d.route}) carries containers with different ETAs ` +
+              `(${d.dates.join(', ')}); positioned at the latest.`,
+          )
+        }
       }
     }
 
