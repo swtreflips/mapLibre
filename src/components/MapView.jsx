@@ -99,8 +99,10 @@ const CARD_SCALE_STOPS = [
   [3, 1.0], // 64 px
   [10, 1.0], // 64 px
 ]
-const cardScale = (zoom) => {
-  const stops = CARD_SCALE_STOPS
+// Linear interpolation over a [zoom, value] stop table, clamped at both ends — the same thing
+// MapLibre's ['interpolate', ['linear'], ['zoom'], ...] does internally. Shared so the DEV readout
+// can report what a layer expression is currently evaluating to without duplicating the maths.
+const interpolateStops = (stops, zoom) => {
   if (zoom <= stops[0][0]) return stops[0][1]
   if (zoom >= stops.at(-1)[0]) return stops.at(-1)[1]
   for (let i = 1; i < stops.length; i += 1) {
@@ -108,8 +110,10 @@ const cardScale = (zoom) => {
     const [z1, s1] = stops[i]
     if (zoom <= z1) return s0 + ((zoom - z0) / (z1 - z0)) * (s1 - s0)
   }
-  return 1
+  return stops.at(-1)[1]
 }
+
+const cardScale = (zoom) => interpolateStops(CARD_SCALE_STOPS, zoom)
 
 // Min zoom where exactly one world copy fills the container width
 // (vector tiles are 512px, so world width at zoom z is 512 * 2^z).
@@ -351,6 +355,42 @@ export default function MapView({ shipments, onSelect }) {
       syncPortCards(map, portsRef.current, cardsRef.current)
     }
     map.on('zoom', applyCardMode)
+
+    // --- DEV instrumentation ---------------------------------------------------------------
+    //
+    // Stripped from production: Vite replaces import.meta.env.DEV with a literal `false`, so this
+    // whole block is dead code and the minifier removes it. Nothing below ships.
+    let teardownDevTools = null
+    if (import.meta.env.DEV) {
+      // A console handle on the map. It deliberately lives in a ref and never in state (CLAUDE.md
+      // §3), which also means devtools has no way to reach it — so `__map.getZoom()`,
+      // `__map.setZoom(4)`, `__map.getCenter()` are otherwise impossible while tuning anything
+      // zoom-staged.
+      window.__map = map
+
+      const hud = document.createElement('div')
+      hud.className = 'map-hud'
+      containerRef.current.appendChild(hud)
+      const paintHud = () => {
+        const z = map.getZoom()
+        const cs = cardScale(z)
+        hud.textContent =
+          `z ${z.toFixed(2)}` +
+          `   card ${cs.toFixed(2)} · ${(CARD_BASE_PX * cs).toFixed(0)}px · ${cardMode(z)}` +
+          // A MIRROR of the layer's icon-size expression, not a readback from the renderer: both
+          // are linear interpolation over the same stop table, so they agree — but if that layer
+          // ever switches to an exponential base, this line goes stale silently.
+          `   ship ${interpolateStops(VESSEL_SCALE_STOPS, z).toFixed(2)}` +
+          `   dpr ${window.devicePixelRatio}`
+      }
+      paintHud()
+      map.on('zoom', paintHud)
+      teardownDevTools = () => {
+        map.off('zoom', paintHud)
+        hud.remove()
+        if (window.__map === map) delete window.__map
+      }
+    }
     map.on('resize', () => {
       map.setMinZoom(computeMinZoom(map.getContainer().clientWidth))
     })
@@ -613,6 +653,7 @@ export default function MapView({ shipments, onSelect }) {
       for (const { marker } of cards.values()) marker.remove()
       cards.clear()
       map.off('zoom', applyCardScale)
+      teardownDevTools?.()
       map.remove()
       mapRef.current = null
     }

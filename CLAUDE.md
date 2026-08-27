@@ -36,6 +36,19 @@ npm run preview   # serve the production build locally
 npm run lint      # ESLint
 ```
 
+**Dev instrumentation** (in [MapView.jsx](src/components/MapView.jsx), guarded by
+`import.meta.env.DEV`, so Vite folds it to `false` and the minifier removes it — verified absent
+from `dist/`):
+
+- **`window.__map`** — a console handle on the map. It lives in a `useRef` and never in state (§3),
+  which also puts it out of devtools' reach, so without this there is no way to run
+  `__map.getZoom()` / `__map.setZoom(4)` / `__map.getCenter()` while tuning anything zoom-staged.
+- **A zoom readout** bottom-left: current zoom, the card's scale/px/form, the vessel `icon-size`,
+  and `devicePixelRatio`. The last two matter because both the icon bake (§5.5) and the card sizing
+  are judged per-DPR. Note the ship figure is a **mirror** of the layer expression computed in JS,
+  not a readback — both are linear interpolation over the same stop table, so they agree today, but
+  it would go stale silently if that layer switched to an exponential base.
+
 ## 3. Architecture & conventions
 
 - **One map, held in a ref.** The MapLibre map is created once in a `useEffect` and stored

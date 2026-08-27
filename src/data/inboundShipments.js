@@ -39,7 +39,7 @@ const inboundShipments = [
     Lastcy: 'New York, NY',
     route: 'Cartagena, Colombia - New York, NY',
     actual_shipping: '2026-06-08',
-    expected_portdate: '2026-06-15',
+    expected_portdate: '2026-08-28',
     actual_portdate: '',
     appointment_date: '',
     arrival_notice: 'no',
