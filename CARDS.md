@@ -248,6 +248,17 @@ Bubble radius follows a gentle `sqrt` ramp (10–16 px, saturating at 25 contain
 count the way people read circles. The range is deliberately narrow — it is a legibility aid for
 two-digit numerals at world zoom, not a proportional-symbol map. The number carries the value.
 
+On top of that, **`BUBBLE_SCALE_STOPS` ramps the whole disc across the bottom of its zoom band** —
+0.72 at z1.6 up to full size by z2.2, then flat until `FIRST_LABEL_ZOOM` hands over to the card.
+That band is where a port is a dot on a continent and the disc reads heavy for what it says; the
+numbers came off the DEV readout at the zooms where it actually looked wrong. It is a **separate**
+table from `CARD_SCALE_STOPS` on purpose: the two forms never coexist and their bands barely touch,
+so one curve spanning both would be fitted to nothing.
+
+The bubble takes **no `will-change: transform`**, unlike the card. Promoting it to its own layer
+risks the compositor scaling a cached raster, which would soften the numeral — the one thing on it
+that must stay sharp. Verified crisp across the ramp at dpr 2.
+
 **The swap runs on `zoom`, not `zoomend`**, so it lands as you cross the threshold instead of
 snapping after you let go. The handler is guarded on the mode actually changing, so it costs one
 comparison per frame and does real work only on a crossing. Positions still recompute on `zoomend`

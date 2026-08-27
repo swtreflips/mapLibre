@@ -115,6 +115,19 @@ const interpolateStops = (stops, zoom) => {
 
 const cardScale = (zoom) => interpolateStops(CARD_SCALE_STOPS, zoom)
 
+// The bubble gets its own ramp, over the narrow band where a port is a dot on a continent.
+// Observed at 1.59–2.19 on a 2x display: at the fully-zoomed-out end the disc is heavy for what it
+// says, and by ~2.2 it sits right. Above that it holds full size until FIRST_LABEL_ZOOM hands over
+// to the card, so this table stops there rather than running the whole range.
+//
+// Separate from CARD_SCALE_STOPS on purpose — the two forms never coexist, and their zoom bands
+// barely touch, so one curve spanning both would be a curve fitted to nothing.
+const BUBBLE_SCALE_STOPS = [
+  [1.6, 0.72],
+  [2.2, 1.0],
+]
+const bubbleScale = (zoom) => interpolateStops(BUBBLE_SCALE_STOPS, zoom)
+
 // Min zoom where exactly one world copy fills the container width
 // (vector tiles are 512px, so world width at zoom z is 512 * 2^z).
 const computeMinZoom = (width) => Math.log2(width / 512)
@@ -340,7 +353,9 @@ export default function MapView({ shipments, onSelect }) {
     // did. One CSS custom property on the container drives every card at once — cheaper than
     // touching each marker, and it rides the same curve the sprites used.
     const applyCardScale = () => {
-      containerRef.current?.style.setProperty('--card-scale', cardScale(map.getZoom()).toFixed(3))
+      const z = map.getZoom()
+      containerRef.current?.style.setProperty('--card-scale', cardScale(z).toFixed(3))
+      containerRef.current?.style.setProperty('--bubble-scale', bubbleScale(z).toFixed(3))
     }
     applyCardScale()
     map.on('zoom', applyCardScale)
@@ -373,10 +388,13 @@ export default function MapView({ shipments, onSelect }) {
       containerRef.current.appendChild(hud)
       const paintHud = () => {
         const z = map.getZoom()
-        const cs = cardScale(z)
+        const card = cardMode(z) === 'card'
+        const cs = card ? cardScale(z) : bubbleScale(z)
         hud.textContent =
           `z ${z.toFixed(2)}` +
-          `   card ${cs.toFixed(2)} · ${(CARD_BASE_PX * cs).toFixed(0)}px · ${cardMode(z)}` +
+          // Report whichever form is actually on screen — showing the card's scale while a bubble
+          // is drawn is how you end up tuning a number that is doing nothing.
+          `   ${cardMode(z)} ${cs.toFixed(2)}${card ? ` · ${(CARD_BASE_PX * cs).toFixed(0)}px` : ''}` +
           // A MIRROR of the layer's icon-size expression, not a readback from the renderer: both
           // are linear interpolation over the same stop table, so they agree — but if that layer
           // ever switches to an exponential base, this line goes stale silently.
