@@ -148,14 +148,15 @@ with no manual maths.
 - **`CARD_BASE_PX = 64`.** The tri-arm card is **~2× wider** than the single mixed stack it
   replaced (three 2-wide footprints side by side), and the square viewBox fits by width — so at the
   old 44 the boxes came out half-size.
-- **`CARD_SCALE_STOPS`: z3 → 0.8, z4.55 → 1.0, flat above.** 51 CSS px where cards first appear,
-  64 px from z4.55 all the way to z17. The low stop sits at `FIRST_LABEL_ZOOM` because that is
+- **`CARD_SCALE_STOPS`: z3 → 0.7, z4.6 → 1.0, flat above.** 45 CSS px where cards first appear,
+  64 px from z4.6 all the way to z17. The low stop sits at `FIRST_LABEL_ZOOM` because that is
   where a card can first exist — below it a port draws a bubble, on its own curve.
 
-  **Deliberately shallow.** An earlier pass ran 0.55 at z3 and the boxes stopped reading as
-  containers; flat 1.0 read fine but was heavier than it needed to be at the bottom. Because
-  **the arms scale with the card**, the ramp also tightens the spread where it matters most: a
-  single-status pile sits ~212 km from its port at z3 rather than ~265.
+  **The bottom is bounded on both sides, and both bounds were found by looking.** 0.55 was too far
+  — the boxes stopped reading as containers; flat 1.0 was heavier than the bottom of the range
+  needs. Because **the arms scale with the card**, the ramp also tightens the spread where it
+  matters most: a single-status pile sits ~185 km from its port at z3 rather than the ~265 km a
+  full-size card gives.
 
   If the piles ever need to tighten further *without* the boxes shrinking, the lever is `ARM_R` in
   portCard.js ramped by zoom — it pulls the arms in and leaves the containers full size. That costs

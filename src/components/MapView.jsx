@@ -88,13 +88,13 @@ const CARD_BASE_PX = 64
 // below it a port draws a bubble, which is on its own curve. The top stop is where full size
 // starts looking right; above it the table clamps, so 64 px holds all the way to z17.
 //
-// Deliberately shallow. An earlier pass ran 0.55 at z3 and the boxes stopped reading as
-// containers; flat 1.0 read fine but was heavier than it needed to be at the bottom. 0.8 is the
-// middle, and it also pulls the arms in with it — a single-status pile sits ~212 km from its port
-// at z3 rather than ~265.
+// Tuned by eye, bounded by measurement. 0.55 at z3 was too far — the boxes stopped reading as
+// containers; flat 1.0 was heavier than it needed to be. 0.7 sits between, and because the arms
+// scale with the card it also tightens the spread where that matters most: a single-status pile
+// sits ~185 km from its port at z3 rather than the ~265 km a full-size card gives.
 const CARD_SCALE_STOPS = [
-  [3, 0.8], // 51 px — cards appear
-  [4.55, 1.0], // 64 px, and flat from here up
+  [3, 0.7], // 45 px — cards appear
+  [4.6, 1.0], // 64 px, and flat from here up
 ]
 // Linear interpolation over a [zoom, value] stop table, clamped at both ends — the same thing
 // MapLibre's ['interpolate', ['linear'], ['zoom'], ...] does internally. Shared so the DEV readout
