@@ -12,7 +12,7 @@ import {
 } from '../lib/vesselMath'
 import { buildBasemapStyle, mapPalette, FONT_REGULAR, FONT_BOLD } from '../map/basemapStyle'
 import { placesFC, buildPlacesFC, portPointsByKey, FIRST_LABEL_ZOOM } from '../data/places'
-import { portCardSvg, portCardLabel, portBubbleSvg, bubbleRadius } from '../map/portCard'
+import { portCardSvg, portCardLabel, portBubbleSvg, bubbleRadius, DIM_OPACITY } from '../map/portCard'
 import { relaxOverlaps } from '../map/declutter'
 import { buildHolders, etaDisagreements } from '../lib/holders'
 import { useUsPorts } from '../hooks/useUsPorts'
@@ -124,6 +124,11 @@ const computeMinZoom = (width) => Math.log2(width / 512)
 
 const EMPTY_FC = { type: 'FeatureCollection', features: [] }
 
+// Search dimming for the vessel layer, sharing the port card's constant so a ghosted ship and a
+// ghosted container box sit at the same remove. Every feature carries matched: 1 when no filter is
+// active, so this reduces to a constant 1 and costs nothing until someone searches.
+const MATCH_OPACITY = ['case', ['==', ['get', 'matched'], 1], 1, DIM_OPACITY]
+
 // Build the vessel FeatureCollection, the port cards, and a key->holder lookup.
 //   vessel holder -> one ship icon, interpolated along the route (remaining = dashed-line coords)
 //   port holder   -> one card at the PORT's coordinate, remaining = null
@@ -206,7 +211,7 @@ function syncPortCards(map, ports, cards, onPick) {
     const { markup, dx, dy } =
       mode === 'card'
         ? portCardSvg(port.statuses, CARD_BASE_PX)
-        : { markup: portBubbleSvg(port.statuses.length), dx: 0, dy: 0 }
+        : { markup: portBubbleSvg(port.statuses.length, port.matched), dx: 0, dy: 0 }
     const label = portCardLabel(port.name, port.statuses)
     let card = cards.get(port.key)
 
@@ -265,8 +270,12 @@ function syncPortCards(map, ports, cards, onPick) {
   applyPortDeclutter(map, ports, cards)
 }
 
-function buildFeatures(shipments, routesByKey, map, portPoints) {
+// `matchedIds` is null when no search filter is active, and a Set of shipment ids when one is.
+// Null and "the empty set" mean different things and must stay distinct: null is "no filter, draw
+// everything at full strength", empty is "a filter that matched nothing, dim the whole map".
+function buildFeatures(shipments, routesByKey, map, portPoints, matchedIds) {
   const mapBearing = map.getBearing()
+  const isMatch = (c) => !matchedIds || matchedIds.has(c.shipment)
   const { vessels, ports: portHolders } = buildHolders(shipments, routesByKey, portPoints)
   const shipFeatures = []
   // holder key -> { holder, remaining }. Selection is per HOLDER now, not per shipment: one icon
@@ -296,6 +305,11 @@ function buildFeatures(shipments, routesByKey, map, portPoints) {
         rotation: bearing - 90,
         count: v.containers.length,
         textOffset: sternOffset(bearing, mapBearing),
+        // ANY container aboard matching keeps the whole hull lit, the same "any" the arrival-notice
+        // colour uses three lines up. A ship is one object in one place; it cannot be half-dimmed,
+        // and which of its boxes matched is what the tray is for. Ports are the opposite case —
+        // their card draws one box per container, so there the dimming goes per box.
+        matched: v.containers.some(isMatch) ? 1 : 0,
       },
     })
   }
@@ -312,7 +326,10 @@ function buildFeatures(shipments, routesByKey, map, portPoints) {
       name: p.name,
       coordinates: p.coordinates,
       anchored: Boolean(portPoints?.get(p.key)),
-      statuses: p.containers.map((c) => containerColor(c)),
+      statuses: p.containers.map((c) => ({ tone: containerColor(c), matched: isMatch(c) })),
+      // Only for the zoomed-out bubble, which shows "2/5" rather than a stack. null with no filter
+      // so the bubble knows to print a plain total.
+      matched: matchedIds ? p.containers.filter(isMatch).length : null,
     })
   }
 
@@ -323,7 +340,11 @@ function buildFeatures(shipments, routesByKey, map, portPoints) {
   }
 }
 
-export default function MapView({ shipments, onSelect }) {
+// `matchedIds`: null when no search filter is active, otherwise the Set of shipment ids that match.
+// MUST be referentially stable across renders — it is a dependency of the rebuild effect below, so
+// a Set rebuilt inline every render would re-register the map listeners and redraw every vessel and
+// port card on each keystroke in the search box. App memoizes it.
+export default function MapView({ shipments, onSelect, matchedIds = null }) {
   const containerRef = useRef(null)
   const mapRef = useRef(null)
   const vesselsByIdRef = useRef(new Map())
@@ -589,6 +610,12 @@ export default function MapView({ shipments, onSelect }) {
           // separation. Same halo treatment the port labels use.
           'text-halo-color': palette.labelHalo,
           'text-halo-width': 1.2,
+          // Search dimming. `matched` is 1 for every feature when no filter is active, so this
+          // expression is a no-op until someone searches — no second code path to keep in step.
+          // Icon and text fade TOGETHER: a full-strength numeral over a ghosted hull would read as
+          // the count being the match.
+          'icon-opacity': MATCH_OPACITY,
+          'text-opacity': MATCH_OPACITY,
         },
       })
 
@@ -728,7 +755,7 @@ export default function MapView({ shipments, onSelect }) {
     if (!mapReady || !map || !routesByKey) return
 
     const rebuild = () => {
-      const { shipFC, ports, byId } = buildFeatures(shipments, routesByKey, map, portPoints)
+      const { shipFC, ports, byId } = buildFeatures(shipments, routesByKey, map, portPoints, matchedIds)
       vesselsByIdRef.current = byId
       portsRef.current = ports
       cardModeRef.current = cardMode(map.getZoom())
@@ -776,7 +803,7 @@ export default function MapView({ shipments, onSelect }) {
       map.off('zoomend', rebuild)
       map.off('rotateend', rebuild)
     }
-  }, [mapReady, routesByKey, shipments, portPoints])
+  }, [mapReady, routesByKey, shipments, portPoints, matchedIds])
 
   return (
     <div className="map-wrap">

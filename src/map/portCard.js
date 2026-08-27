@@ -117,8 +117,18 @@ function armFootprint(arm) {
   return [iso(x0, y0, 0), iso(x1, y0, 0), iso(x1, y1, 0), iso(x0, y1, 0)]
 }
 
+// How far an unmatched container recedes while a search filter is active. Exported because the
+// vessel layer dims to the SAME value (MapView) — one number, so a dimmed ship and a dimmed box
+// read as the same state rather than two nearly-equal greys.
+//
+// 0.28 is low enough that a match is unmistakable at a glance and high enough that the fleet is
+// still legible as context, which is the whole reason dimming was chosen over hiding.
+export const DIM_OPACITY = 0.28
+
 /**
- * @param {Array<'red'|'blue'|'green'>} statuses one entry per container at this port
+ * @param {Array<{tone: 'red'|'blue'|'green', matched: boolean}>} statuses one entry per container
+ *   at this port. `matched` is false only while a search filter is active and this container falls
+ *   outside it; with no filter every entry is matched and the card draws at full strength.
  * @param {number} size  rendered box in CSS px (the stack shrinks to fit inside it)
  * @returns {{markup: string, dx: number, dy: number}} the SVG, plus the pre-scale translate that
  *   puts the ARMS' ORIGIN on the box centre (see the note where they are computed). `markup` is ''
@@ -150,16 +160,22 @@ export function portCardSvg(statuses, size = 72) {
   // ── The piles ───────────────────────────────────────────────────────────────────────
   const boxes = []
   for (const arm of ARM_ORDER) {
-    const n = statuses.filter((s) => s === arm).length
-    if (n === 0) continue
+    // MATCHED BOXES TAKE THE LOW SLOTS. Boxes within an arm are interchangeable — they differ only
+    // in where the fill order puts them — so spending the bottom of the pile on the matches costs
+    // nothing and buys the one thing that matters under a filter: a match is never the box hidden
+    // behind three others. Stable otherwise, so an unfiltered card is unchanged.
+    const inArm = statuses.filter((s) => s.tone === arm)
+    if (inArm.length === 0) continue
+    inArm.sort((a, b) => Number(Boolean(b.matched)) - Number(Boolean(a.matched)))
     const [bx, by] = armBase(arm)
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < inArm.length; i++) {
       // Fill the bottom row left to right, then upward.
       //   index 0 -> back-left, 1 -> front-right, 2 -> second level back-left, ...
       const col = i % COLUMNS
       const level = Math.floor(i / COLUMNS)
       boxes.push({
         arm,
+        matched: Boolean(inArm[i].matched),
         x0: bx + col * BOX_W,
         y0: by,
         z0: level * BOX_H,
@@ -175,14 +191,22 @@ export function portCardSvg(statuses, size = 72) {
   boxes.sort((a, b) => ARMS[a.arm].depth - ARMS[b.arm].depth || a.key - b.key)
 
   const polys = []
-  for (const { arm, x0, y0, z0 } of boxes) {
+  for (const { arm, x0, y0, z0, matched } of boxes) {
     const faces = boxFaces(x0, y0, z0)
     const shade = SHADES[arm] ?? SHADES.blue
+    const faceMarkup = []
     for (const face of ['top', 'side', 'end']) {
       const p = faces[face]
       for (const [, y] of p) if (y < minY) minY = y // stacks grow the frame UPWARD only
-      polys.push(`<polygon points="${pts(p)}" fill="${shade[face]}"/>`)
+      faceMarkup.push(`<polygon points="${pts(p)}" fill="${shade[face]}"/>`)
     }
+    // GROUP opacity, not per-polygon. Opacity on each face would let a dimmed box's own three
+    // sides show through one another and through whatever it occludes — the solid reads as a
+    // wireframe smear. A <g> composites the box first and fades it whole, so it stays a box that
+    // has receded rather than a broken one.
+    polys.push(
+      matched ? faceMarkup.join('') : `<g opacity="${DIM_OPACITY}">${faceMarkup.join('')}</g>`,
+    )
   }
 
   // Pad in user units for the stroke that will be drawn just outside the geometry.
@@ -267,16 +291,25 @@ const BUBBLE_TEXT_RATIO = [1.15, 0.98, 0.74]
 
 /**
  * The zoomed-out form: one disc per port carrying its total container count.
+ *
+ * Under a search filter it reads "2/5" instead. The bubble deliberately carries no status
+ * breakdown, but it must not go silent about a filter — an undivided "5" at a port where only two
+ * containers match would be the one number on screen contradicting everything else.
+ *
  * @param {number} count total containers at the port
+ * @param {number|null} matched how many of them match the active filter; null when none is active
  * @returns {string} inline SVG markup, or '' for an empty port
  */
-export function portBubbleSvg(count) {
+export function portBubbleSvg(count, matched = null) {
   if (!count) return ''
+  const filtered = matched != null && matched !== count
+  const text = filtered ? `${matched}/${count}` : String(count)
   const r = bubbleRadius(count)
   const half = r + BUBBLE_RING_W
   const size = half * 2
-  const digits = String(count).length
-  const fontSize = r * (BUBBLE_TEXT_RATIO[digits - 1] ?? BUBBLE_TEXT_RATIO[2])
+  // Sized off the RENDERED STRING, not the count's digits — "2/5" is three glyphs wide while 5 is
+  // one, and reading the ratio off the count would overflow the disc.
+  const fontSize = r * (BUBBLE_TEXT_RATIO[text.length - 1] ?? BUBBLE_TEXT_RATIO[2])
   return (
     // Origin-centred viewBox so the disc's centre is the marker's anchor point with no offset maths.
     `<svg class="port-bubble__svg" width="${size.toFixed(2)}" height="${size.toFixed(2)}" ` +
@@ -286,18 +319,24 @@ export function portBubbleSvg(count) {
     // dy=".34em" rather than dominant-baseline: the same optical centring, without depending on a
     // property browsers have historically disagreed about.
     `<text x="0" y="0" dy=".34em" text-anchor="middle" fill="${BUBBLE_TEXT}" ` +
-    `font-size="${fontSize.toFixed(2)}" font-weight="700">${count}</text>` +
+    `font-size="${fontSize.toFixed(2)}" font-weight="700">${text}</text>` +
     `</svg>`
   )
 }
 
-/** Human-readable summary for the marker's title/aria — SVG alone tells a screen reader nothing. */
+/**
+ * Human-readable summary for the marker's title/aria — SVG alone tells a screen reader nothing.
+ * The match count is named whenever a filter is dimming boxes, because that dimming is the one
+ * part of the card a screen reader cannot see at all.
+ */
 export function portCardLabel(portName, statuses) {
   const n = statuses.length
-  const aging = statuses.filter((s) => s === 'red').length
-  const booked = statuses.filter((s) => s === 'green').length
+  const aging = statuses.filter((s) => s.tone === 'red').length
+  const booked = statuses.filter((s) => s.tone === 'green').length
+  const matched = statuses.filter((s) => s.matched).length
   const bits = [`${n} container${n === 1 ? '' : 's'}`]
   if (aging) bits.push(`${aging} aging`)
   if (booked) bits.push(`${booked} with appointment`)
+  if (matched !== n) bits.push(`${matched} matching the search`)
   return `${portName}: ${bits.join(', ')}`
 }

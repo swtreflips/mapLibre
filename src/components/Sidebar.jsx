@@ -1,7 +1,9 @@
 import { useMemo } from 'react'
 import { parseYMD } from '../lib/vesselMath'
+import { KIND_LABELS } from '../lib/search'
 import BrandMark from './BrandMark'
 import ContainerCard from './ContainerCard'
+import SearchBox from './SearchBox'
 import './Sidebar.css'
 
 // Snapshot counts over all shipments (CLAUDE.md §8).
@@ -39,7 +41,7 @@ function Row({ label, value }) {
 // THE TRAY. A holder — a vessel or a port — holds 1..N containers, and this is what it is
 // holding. The panel used to show one shipment because the map used to select one shipment; both
 // changed together (CLAUDE.md §8).
-function Tray({ holder }) {
+function Tray({ holder, matchedIds }) {
   const n = holder.containers.length
   return (
     <section className="panel panel--tray">
@@ -54,15 +56,73 @@ function Tray({ holder }) {
         </p>
       </header>
       <div className="tray__list">
+        {/* SELECTION WINS OVER THE FILTER: a holder shows everything it holds, filtered or not,
+            because "what is on this ship" is the question a click asks and a partial answer to it
+            would be a lie. The matches are ringed instead — which is also what the map is doing
+            one arm over, so the two views agree. */}
         {holder.containers.map((c) => (
-          <ContainerCard key={c.shipment} shipment={c} />
+          <ContainerCard key={c.shipment} shipment={c} matched={matchedIds?.has(c.shipment)} />
         ))}
       </div>
     </section>
   )
 }
 
-export default function Sidebar({ shipments, selected }) {
+// The committed filter, and the way out of it. Three exits exist (this chip, the input's ✕, and
+// Escape) because a filter you cannot leave is a mode, and a dashboard with a hidden mode is how
+// someone ends up believing half the fleet has sailed.
+function FilterBar({ filter, count, onClear }) {
+  return (
+    <div className="filterbar">
+      <div className="filterbar__chip">
+        <span className="filterbar__kind">{KIND_LABELS[filter.kind] ?? 'Search'}</span>
+        <span className="filterbar__value">{filter.value}</span>
+      </div>
+      <span className="filterbar__count">
+        {count} container{count === 1 ? '' : 's'}
+      </span>
+      <button type="button" className="filterbar__clear" onClick={onClear}>
+        Clear
+      </button>
+    </div>
+  )
+}
+
+function Results({ shipments, matchedIds, filter, onClear }) {
+  const hits = useMemo(
+    () => shipments.filter((s) => matchedIds.has(s.shipment)),
+    [shipments, matchedIds],
+  )
+
+  return (
+    <section className="panel panel--tray">
+      <FilterBar filter={filter} count={hits.length} onClear={onClear} />
+      {hits.length === 0 ? (
+        <div className="tray__list">
+          <p className="placeholder">Nothing matches that. Clear the filter to see the fleet.</p>
+        </div>
+      ) : (
+        <div className="tray__list">
+          {hits.map((s) => (
+            <ContainerCard key={s.shipment} shipment={s} />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+export default function Sidebar({
+  shipments,
+  selected,
+  index,
+  query,
+  filter,
+  matchedIds,
+  onQueryChange,
+  onCommit,
+  onClear,
+}) {
   const stats = useMemo(() => computeStats(shipments), [shipments])
 
   return (
@@ -73,10 +133,24 @@ export default function Sidebar({ shipments, selected }) {
         <BrandMark tone="dark" />
       </div>
 
-      {/* With nothing selected the snapshot IS the panel, rather than an empty placeholder above
-          a stats block. Selecting a holder replaces it wholesale — the two never stack. */}
+      {/* Its own flex row between the cap and the panel — NOT inside the cap, whose 4rem height is
+          a cross-app contract and whose `> * { z-index: 1 }` would trap the dropdown in its
+          stacking context. */}
+      <SearchBox
+        index={index}
+        query={query}
+        filter={filter}
+        onQueryChange={onQueryChange}
+        onCommit={onCommit}
+        onClear={onClear}
+      />
+
+      {/* Three states, never stacked: a selected holder wins, then an active filter's results,
+          then the snapshot. */}
       {selected ? (
-        <Tray holder={selected} />
+        <Tray holder={selected} matchedIds={matchedIds} />
+      ) : filter && matchedIds ? (
+        <Results shipments={shipments} matchedIds={matchedIds} filter={filter} onClear={onClear} />
       ) : (
         <section className="panel">
           <h3>Snapshot</h3>

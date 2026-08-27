@@ -1,0 +1,177 @@
+/*
+  The search box and its suggestion list.
+
+  Every surface, radius, shadow and focus treatment here is lifted from ContainerCard rather than
+  invented — this is the app's first input and first overlay, and the point is that it reads as the
+  same object family as the cards it sits above. If the skin changes, both change together.
+*/
+
+.sbox {
+  /* The positioning context for the dropdown. The wrapper is a plain flex row in .sidebar — it
+     must NOT carry the `panel` class, because `.sidebar .panel + .panel` is a sibling selector
+     that would flip the tray below it to flex: 0 0 auto and kill its scroll. */
+  position: relative;
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  background: rgb(var(--c-fog-50));
+  border-bottom: 1px solid rgb(var(--c-fog-200));
+}
+
+/* ── The field ──────────────────────────────────────────────────────────────────────── */
+
+.sbox__field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  background: #fff;
+  border: 1px solid rgb(var(--c-fog-200));
+  border-radius: var(--radius-lg);
+  transition: border-color var(--motion-fast, 140ms) var(--ease-out-expo, ease),
+    box-shadow var(--motion-fast, 140ms) var(--ease-out-expo, ease);
+}
+
+.sbox__field:focus-within {
+  border-color: rgb(var(--c-signal-400));
+  box-shadow: 0 0 0 3px rgb(var(--c-signal-400) / 0.16);
+}
+
+.sbox__icon {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: rgb(var(--c-fog-400, var(--c-fog-500)));
+}
+
+.sbox__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* It is an <input> for what it does, not for how the UA paints it. */
+  margin: 0;
+  padding: 9px 0;
+  border: 0;
+  background: none;
+  font: 400 13px var(--font-sans);
+  color: rgb(var(--c-harbor-900));
+}
+
+/* The ring lives on .sbox__field (above) so it wraps the whole control including the icon and the
+   clear button, rather than a bare rectangle inside it. */
+.sbox__input:focus {
+  outline: none;
+}
+
+.sbox__input::placeholder {
+  color: rgb(var(--c-fog-400, var(--c-fog-500)));
+}
+
+.sbox__clear {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: none;
+  cursor: pointer;
+  font: 400 12px var(--font-sans);
+  line-height: 1;
+  color: rgb(var(--c-fog-500));
+}
+
+.sbox__clear:hover {
+  color: rgb(var(--c-harbor-900));
+}
+
+.sbox__clear:focus-visible {
+  outline: 2px solid rgb(var(--c-signal-400));
+  outline-offset: 2px;
+}
+
+/* ── The dropdown ───────────────────────────────────────────────────────────────────── */
+
+.sbox__list {
+  position: absolute;
+  top: calc(100% - 6px);
+  left: 12px;
+  right: 12px;
+  /* The sidebar's own stacking world tops out at 1 (.sidebar__cap > *), and the reserved
+     .gate--fullscreen auth overlay sits at 50. 10 clears the former with room under the latter. */
+  z-index: 10;
+  max-height: 42vh;
+  overflow-y: auto;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: #fff;
+  border: 1px solid rgb(var(--c-fog-200));
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card-hover, var(--shadow-card));
+}
+
+.sbox__list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sbox__group + .sbox__group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgb(var(--c-fog-100));
+}
+
+/* Same micro-label treatment as a card's <dt>: mono, uppercase, wide tracking, muted. Weight 500
+   is the ceiling — DM Mono only loads 400/500 and heavier gets synthesised and smears at this
+   size (see ContainerCard.css). */
+.sbox__grouplabel {
+  margin: 0;
+  padding: 5px 8px 3px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: rgb(var(--c-fog-400, var(--c-fog-500)));
+}
+
+.sbox__opt {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+}
+
+/* One highlight for both hover and keyboard: the mouse sets `active` on enter, so there is a
+   single notion of "the option you are about to commit" rather than two competing ones. */
+.sbox__opt--active {
+  background: rgb(var(--c-signal-50));
+}
+
+.sbox__value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: rgb(var(--c-harbor-900));
+  overflow-wrap: anywhere;
+}
+
+.sbox__count {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: rgb(var(--c-fog-500));
+}
+
+.sbox__empty {
+  padding: 12px 14px;
+  font: 400 12px var(--font-sans);
+  color: rgb(var(--c-fog-500));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sbox__field {
+    transition: none;
+  }
+}

@@ -60,6 +60,15 @@
   --ccard-chip-bg: #ecf7f0;
 }
 
+/* A search match, inside a holder tray. A RING rather than a tint or a tone swap: the card's
+   colour vocabulary is already spoken for by status (red/blue/green above), and a match is an
+   orthogonal fact about the same card. Signal violet is the app's accent and means nothing else
+   on this surface, so it cannot be confused with a status. */
+.ccard--matched {
+  border-color: rgb(var(--c-signal-300));
+  box-shadow: 0 0 0 2px rgb(var(--c-signal-400) / 0.3), var(--shadow-card);
+}
+
 /* ── Header ─────────────────────────────────────────────────────────────────────────── */
 
 .ccard__head {

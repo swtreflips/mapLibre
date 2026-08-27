@@ -30,13 +30,17 @@ function Fact({ label, children, wide }) {
   )
 }
 
-export default function ContainerCard({ shipment: s }) {
+// `matched` is only meaningful inside a HOLDER tray while a search filter is active: the tray
+// shows everything the holder holds, so the ring is what says which of those the search was
+// about. In the results list every card matched by definition, so it is left undefined there and
+// no ring is drawn.
+export default function ContainerCard({ shipment: s, matched }) {
   const [open, setOpen] = useState(false)
   const status = containerStatus(s)
   const items = s.items ?? []
 
   return (
-    <article className={`ccard ccard--${status.tone}`}>
+    <article className={`ccard ccard--${status.tone}${matched ? ' ccard--matched' : ''}`}>
       {/*
         The whole header is the toggle, not a separate chevron: the card is one target and the
         target is the thing you are looking at. A <button> rather than a click handler on the
