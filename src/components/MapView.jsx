@@ -71,7 +71,11 @@ const PLACE_ZOOM_FILTER = ['<=', ['get', 'minzoom'], ['zoom']]
 // replaced were 40 CSS px on the same curve; at 72 the card spanned ~1,200 km at world zoom and
 // swallowed the northeast US. 44 keeps a card comparable to a vessel while still reading as
 // "several containers".
-const CARD_BASE_PX = 44
+// The tri-arm card is ~2x wider than the single mixed stack it replaced (three 2-wide footprints
+// side by side instead of one), and the square viewBox fits by width — so at the old 44 the boxes
+// came out half-size. 64 splits the difference: boxes ~73% of the old size, card ~46% wider on
+// screen. This is the lever if cards feel too heavy at world zoom.
+const CARD_BASE_PX = 64
 const cardScale = (zoom) => {
   const stops = [
     [2, 0.6],

@@ -254,9 +254,11 @@ the offset only nudges the icon a few px and never rotates it.
 
 Tunables: `CLUSTER_PX` (overlap threshold) and `RING_PX` (spread tightness).
 
-### 5.4 Port container cards — one isometric stack per port
-Arrived containers are drawn as **one card per discharge port**: an isometric stack two containers
-wide growing upward, coloured per container by status. A port with no containers renders nothing.
+### 5.4 Port container cards — three isometric stacks per port
+Arrived containers are drawn as **one card per discharge port**, split into **three arms radiating
+from a shared centre — blue NW, red NE, green S**, 120° apart on screen. Each arm is its own stack:
+two containers wide, growing upward. A port with no containers renders nothing; a port missing one
+*status* draws a faint neutral pad in that arm's slot.
 Full reference in **[CARDS.md](CARDS.md)**; implementation in
 [src/map/portCard.js](src/map/portCard.js) + `syncPortCards` in
 [MapView.jsx](src/components/MapView.jsx).
@@ -271,13 +273,19 @@ port became a smear.
 - **DOM markers, not a symbol layer** — a deliberate exception to §3, argued in CARDS.md §5. One
   marker per *port* (under a dozen) inverts the trade that rule is about, and buys vector crispness
   with no bake step plus a real click target for the §8 port summary.
+- **The three arm directions are the isometric ground plane's own axes** — `-x` projects up-left,
+  `-y` up-right, `+x+y` straight down, all at the same screen radius. Not an arbitrary rosette.
+- **Position encodes status a second time, independently of hue** — which corner a pile sits in
+  *is* its status. The frame is measured from all three slots whether or not they are occupied, so
+  a lone pile is never re-centred and that signal survives.
 - **The SVG viewBox does the shrink-to-fit**; `vector-effect="non-scaling-stroke"` keeps the
   outline from going sub-pixel on tall stacks — the §5.5 failure, in a different disguise.
 - **Cards do not scale with the map** the way sprites do: `--card-scale` on `.map-container` is
   driven from the `zoom` event on the old sprite curve (z2→0.6, z6→0.8, z10→1.1).
 
 Future containers at the POL are **deferred** (not yet implemented).
-Tunable: `CARD_BASE_PX` in MapView.
+Tunables: `CARD_BASE_PX` in MapView (the tri-arm card is ~2× wider than the single stack it
+replaced, so it sits at 64 rather than 44), and `ARM_R` in portCard.js.
 
 ### 5.5 Icon sizing (baked PNGs + zoom-interpolated `icon-size`)
 Icons are baked near display size and registered with `map.addImage(..., { pixelRatio: 2 })`, then
