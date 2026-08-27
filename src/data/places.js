@@ -46,8 +46,14 @@ import { normalizeKey } from '../lib/vesselMath'
 // the inland network fills in behind it. Shifting the start without touching the gap moves both
 // groups together and keeps that reveal intact — which is why they are separate constants rather
 // than two hardcoded numbers that have to be kept in sync by hand.
-const PORT_BAND_START = 3
+export const PORT_BAND_START = 3
 const PORT_BAND_GAP = 1
+
+// The zoom the FIRST port label appears at — a large seaport, `placeMinzoom` with size 'L'. Port
+// cards key off this too: below it there are no names on the map, so a card has nothing to be
+// read against and collapses to a count bubble (src/map/portCard.js). Exported rather than
+// duplicated as a number in MapView, so moving the label staging moves the card threshold with it.
+export const FIRST_LABEL_ZOOM = PORT_BAND_START
 
 export const MINZOOM_BY_PORT_TYPE = {
   P: PORT_BAND_START,

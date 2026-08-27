@@ -56,13 +56,11 @@ single-status card. The frame *is* the feature.
 
 Only the top grows with the tallest stack.
 
-### Empty sections get a pad
-
-A section with no containers draws a faint neutral ground quad where its pile would be, so an
-absent status reads as "no red here" rather than as an ambiguous gap. **Only empty sections** — a
-partly-filled slot would show its unused half as a grey shard beside the box, which is noise when
-the pile already marks the section. The pad is neutral grey (R=G=B) on purpose: it is structure,
-not data, and must not read as a fourth status.
+**Only real containers are ever painted.** An empty section draws nothing at all — the frame is
+measured, not drawn. (A faint ground pad marking the empty slot was tried and removed: it added a
+grey shard next to every partly-filled pile and read as a fourth status.) The pile's offset from
+the marker's anchor is what identifies the section, and by this zoom the port's own label is on
+screen to read it against.
 
 ### Within an arm
 
@@ -170,7 +168,47 @@ a `×N` overflow, **not** a bigger card.
 
 ---
 
-## 5. Where a card is anchored
+## 5. Two forms: card and bubble
+
+A port draws one of two things, chosen by zoom:
+
+| zoom | form | shows |
+|---|---|---|
+| ≥ `FIRST_LABEL_ZOOM` | the isometric **card** | full breakdown — which statuses, how many of each |
+| below | a count **bubble** | the port's total, no breakdown |
+
+**The threshold is the zoom the first port label appears at** — `PORT_BAND_START` in
+[src/data/places.js](src/data/places.js), exported as `FIRST_LABEL_ZOOM` rather than copied as a
+number, so moving the label staging moves this with it. That is the right seam because the card
+*depends* on labels: below it there are no names on the map, so a stack has nothing to be read
+against, and a dozen of them are clutter rather than information.
+
+The two questions are genuinely different. Zoomed out: *where is the volume — east coast or west?*
+A total answers that; a status breakdown at 6 px per box does not. Zoomed in: *what is going on at
+this port?* — several blue and a couple of red says a batch just landed and a few have been sitting
+without an appointment. So the bubble carries **no status colour at all**, deliberately, and is a
+true neutral (R=G=B): the bubble aggregates all three statuses, so any tint would read as one of
+them, and warm greys read reddish at this size to a colour-blind eye (CLAUDE.md §15).
+
+Bubble radius follows a gentle `sqrt` ramp (10–16 px, saturating at 25 containers) so area tracks
+count the way people read circles. The range is deliberately narrow — it is a legibility aid for
+two-digit numerals at world zoom, not a proportional-symbol map. The number carries the value.
+
+**The swap runs on `zoom`, not `zoomend`**, so it lands as you cross the threshold instead of
+snapping after you let go. The handler is guarded on the mode actually changing, so it costs one
+comparison per frame and does real work only on a crossing. Positions still recompute on `zoomend`
+only (CLAUDE.md §6).
+
+The two forms anchor differently — a stack sits *on* its port (`anchor: 'bottom'`), a bubble sits
+centred over it — and `Marker` has no `setAnchor`, so crossing the threshold rebuilds the marker.
+Once per crossing for under a dozen ports is cheap; the alternative is offset arithmetic that has
+to stay in sync with the CSS `transform-origin`. The bubble also opts out of `--card-scale`: the
+card scales because it stands for physical containers at a place, but a readout that shrinks as you
+zoom out is the opposite of what it is for.
+
+---
+
+## 6. Where a card is anchored
 
 **At the port's own coordinate — the exact point its label is drawn at.** `portPointsByKey` in
 [src/data/places.js](src/data/places.js) builds that lookup from `buildPlacesFC`'s own output, so
@@ -194,7 +232,7 @@ there.
 
 ---
 
-## 6. Why DOM markers
+## 7. Why DOM markers
 
 This is a deliberate departure from CLAUDE.md §3's "prefer data-driven layers over DOM markers".
 That rule exists because one `Marker` *per vessel* does not scale. This is one per **port** — under
@@ -212,7 +250,7 @@ only reassigned when the stack actually changed, so refreshes do not rebuild the
 
 ---
 
-## 7. Known gap
+## 8. Known gap
 
 **Cards are not interactive** (`pointer-events: none`). Clicking a container used to fill the
 sidebar with that shipment; one card standing for N containers has no single shipment to show — the

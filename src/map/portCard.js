@@ -1,5 +1,8 @@
 // Port container card — three isometric stacks, one per status, radiating from the port.
 //
+// Two forms, chosen by zoom in MapView: the CARD below, and a plain count BUBBLE for zoomed-out
+// views where a dozen little stacks would be clutter rather than information (see portBubbleSvg).
+//
 // Replaces the golden-angle spiral that drew one icon per container. The spiral answered the wrong
 // question: you counted scattered boxes instead of reading a port's load at a glance.
 //
@@ -88,12 +91,6 @@ const OUTLINE = 'rgba(18, 28, 22, 0.55)'
 // In CSS PIXELS, not user units — see vector-effect below.
 const OUTLINE_WIDTH = 0.9
 
-// The faint ground quad marking an arm's slot. Neutral grey (R=G=B) on purpose: it is structure,
-// not data, and must not read as a fourth status. Piles cover their own pad, so in practice this
-// is only visible where a section is EMPTY — which is the point. An absent pile is legible as
-// "no red here" rather than as an ambiguous gap.
-const PAD_FILL = 'rgba(90, 90, 90, 0.14)'
-
 const pts = (points) => points.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' ')
 
 // The three visible faces of one box, as screen-space polygons.
@@ -111,8 +108,9 @@ function boxFaces(x0, y0, z0) {
   }
 }
 
-// The ground rectangle of one arm's slot, projected.
-function armPad(arm) {
+// The ground rectangle of one arm's slot, projected. Nothing draws this — it is measured, to fix
+// the card's frame (see below). Only real containers are ever painted.
+function armFootprint(arm) {
   const [x0, y0] = armBase(arm)
   const x1 = x0 + COLUMNS * BOX_W
   const y1 = y0 + BOX_L
@@ -138,20 +136,12 @@ export function portCardSvg(statuses, size = 72) {
   let maxX = -Infinity
   let maxY = -Infinity
   let minY = Infinity
-  const pads = []
   for (const arm of ARM_ORDER) {
-    const p = armPad(arm)
-    for (const [x, y] of p) {
+    for (const [x, y] of armFootprint(arm)) {
       if (x < minX) minX = x
       if (x > maxX) maxX = x
       if (y > maxY) maxY = y
       if (y < minY) minY = y
-    }
-    // Only EMPTY sections get a pad. A partly-filled slot would show its unused half as a grey
-    // shard poking out beside the box — noise, since the pile itself already says where the
-    // section is. The frame above is measured from all three slots either way.
-    if (!statuses.some((s) => s === arm)) {
-      pads.push(`<polygon points="${pts(p)}" fill="${PAD_FILL}" stroke="none"/>`)
     }
   }
 
@@ -213,8 +203,60 @@ export function portCardSvg(statuses, size = 72) {
     // With it, the stroke is a constant width in final render space at any stack height.
     `stroke="${OUTLINE}" stroke-width="${OUTLINE_WIDTH}" stroke-linejoin="round" ` +
     `vector-effect="non-scaling-stroke">` +
-    pads.join('') +
     polys.join('') +
+    `</svg>`
+  )
+}
+
+// ── The zoomed-out form ───────────────────────────────────────────────────────────────
+//
+// Below the zoom where port LABELS appear, a dozen isometric stacks are clutter, not information:
+// the boxes are too small to count and there is no name to hang them on. So the card collapses to
+// one bubble carrying the port's total — no status breakdown, deliberately. Zoomed out the question
+// is "where is the volume, east coast or west"; the breakdown is what you zoom IN for.
+//
+// NEUTRAL on purpose, and a true neutral (R=G=B): the bubble aggregates all three statuses, so any
+// tint would read as one of them. Warm greys also read reddish at this size to a colour-blind eye
+// (CLAUDE.md §15).
+const BUBBLE_FILL = '#3A3A3A'
+const BUBBLE_RING = 'rgba(255, 255, 255, 0.92)' // separates the disc from dark water / land alike
+const BUBBLE_RING_W = 1.5
+const BUBBLE_TEXT = '#FFFFFF'
+
+// A gentle sqrt ramp, not a linear one: area tracks count, which is how people read circles. The
+// range is deliberately narrow — this is a legibility aid for two-digit numerals at world zoom, not
+// a proportional-symbol map. The number is still what carries the value.
+const BUBBLE_R_MIN = 10
+const BUBBLE_R_MAX = 16
+const BUBBLE_R_FULL = 25 // count at which the bubble reaches BUBBLE_R_MAX
+const bubbleRadius = (n) =>
+  BUBBLE_R_MIN + (BUBBLE_R_MAX - BUBBLE_R_MIN) * Math.min(1, Math.sqrt(n / BUBBLE_R_FULL))
+
+// Shrink the numeral as digits are added so three digits still fit inside the disc.
+const BUBBLE_TEXT_RATIO = [1.15, 0.98, 0.74]
+
+/**
+ * The zoomed-out form: one disc per port carrying its total container count.
+ * @param {number} count total containers at the port
+ * @returns {string} inline SVG markup, or '' for an empty port
+ */
+export function portBubbleSvg(count) {
+  if (!count) return ''
+  const r = bubbleRadius(count)
+  const half = r + BUBBLE_RING_W
+  const size = half * 2
+  const digits = String(count).length
+  const fontSize = r * (BUBBLE_TEXT_RATIO[digits - 1] ?? BUBBLE_TEXT_RATIO[2])
+  return (
+    // Origin-centred viewBox so the disc's centre is the marker's anchor point with no offset maths.
+    `<svg class="port-bubble__svg" width="${size.toFixed(2)}" height="${size.toFixed(2)}" ` +
+    `viewBox="${-half} ${-half} ${size} ${size}" aria-hidden="true">` +
+    `<circle r="${r.toFixed(2)}" fill="${BUBBLE_FILL}" ` +
+    `stroke="${BUBBLE_RING}" stroke-width="${BUBBLE_RING_W}"/>` +
+    // dy=".34em" rather than dominant-baseline: the same optical centring, without depending on a
+    // property browsers have historically disagreed about.
+    `<text x="0" y="0" dy=".34em" text-anchor="middle" fill="${BUBBLE_TEXT}" ` +
+    `font-size="${fontSize.toFixed(2)}" font-weight="700">${count}</text>` +
     `</svg>`
   )
 }

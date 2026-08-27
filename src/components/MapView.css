@@ -31,11 +31,29 @@
   pointer-events: none; /* cards are not interactive yet — see CLAUDE.md §8 port summary */
 }
 
+/* The zoomed-out form: one count bubble per port, centred on it.
+   It does NOT ride --card-scale. The card scales because it stands for physical containers sitting
+   at a place; the bubble is a readout, and a readout that shrinks as you zoom out is the opposite
+   of what it is for. Below the threshold the curve only spans 0.60-0.65 anyway, so this costs
+   nothing but legibility gained. */
+.port-card--bubble {
+  transform: none;
+  transform-origin: 50% 50%;
+}
+
 .port-card__svg {
   display: block;
   /* A soft ground shadow reads as "sitting on the map" rather than floating above it. Cheap:
      a drop-shadow filter on the whole stack, not a shadow per box. */
   filter: drop-shadow(0 1px 1.5px rgb(18 28 22 / 0.28));
+}
+
+.port-bubble__svg {
+  display: block;
+  /* The numerals are drawn by the browser, not from the map's baked SDF glyphs, so this is the
+     skin's own typeface rather than the Noto Sans the labels use (CLAUDE.md §15). */
+  font-family: var(--font-sans);
+  filter: drop-shadow(0 1px 2px rgb(18 28 22 / 0.35));
 }
 
 /* Error surfaces belong to the palette too. A stock red alert box beside a warm sidebar reads

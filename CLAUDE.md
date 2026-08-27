@@ -257,8 +257,15 @@ Tunables: `CLUSTER_PX` (overlap threshold) and `RING_PX` (spread tightness).
 ### 5.4 Port container cards — three isometric stacks per port
 Arrived containers are drawn as **one card per discharge port**, split into **three arms radiating
 from a shared centre — blue NW, red NE, green S**, 120° apart on screen. Each arm is its own stack:
-two containers wide, growing upward. A port with no containers renders nothing; a port missing one
-*status* draws a faint neutral pad in that arm's slot.
+two containers wide, growing upward. A port with no containers renders nothing, and an empty arm
+draws nothing — only real containers are ever painted.
+
+**Two forms, chosen by zoom.** At or above `FIRST_LABEL_ZOOM` (= `PORT_BAND_START`, the zoom the
+first port label appears at, exported from [places.js](src/data/places.js) rather than copied) a
+port draws the card. Below it, a neutral **count bubble** with the port's total and no status
+breakdown: zoomed out the question is "where is the volume", and a dozen stacks at 6 px per box is
+clutter, not information. The swap runs on `zoom` rather than `zoomend` so it lands mid-gesture,
+guarded on the mode actually changing. See CARDS.md §5.
 Full reference in **[CARDS.md](CARDS.md)**; implementation in
 [src/map/portCard.js](src/map/portCard.js) + `syncPortCards` in
 [MapView.jsx](src/components/MapView.jsx).

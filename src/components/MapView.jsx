@@ -14,8 +14,8 @@ import {
   containerColor,
 } from '../lib/vesselMath'
 import { buildBasemapStyle, mapPalette, FONT_REGULAR, FONT_BOLD } from '../map/basemapStyle'
-import { placesFC, buildPlacesFC, portPointsByKey } from '../data/places'
-import { portCardSvg, portCardLabel } from '../map/portCard'
+import { placesFC, buildPlacesFC, portPointsByKey, FIRST_LABEL_ZOOM } from '../data/places'
+import { portCardSvg, portCardLabel, portBubbleSvg } from '../map/portCard'
 import { useUsPorts } from '../hooks/useUsPorts'
 import { useLoadingPorts } from '../hooks/useLoadingPorts'
 
@@ -126,23 +126,43 @@ function sternOffset(bearing, mapBearing) {
 // is never removed is a card stuck on the map for the rest of the session, showing containers that
 // have since been delivered. `cards` is a Map keyed by port so this stays O(n) and each card keeps
 // its DOM element (and any hover state) across refreshes instead of being torn down and rebuilt.
+// Which form a port draws at this zoom. Above the first port label, the full isometric card;
+// below it, a bubble carrying the total. See portBubbleSvg for why.
+const cardMode = (zoom) => (zoom >= FIRST_LABEL_ZOOM ? 'card' : 'bubble')
+
 function syncPortCards(map, ports, cards) {
   const seen = new Set()
+  const mode = cardMode(map.getZoom())
 
   for (const port of ports) {
     seen.add(port.key)
-    const html = portCardSvg(port.statuses, CARD_BASE_PX)
+    const html =
+      mode === 'card'
+        ? portCardSvg(port.statuses, CARD_BASE_PX)
+        : portBubbleSvg(port.statuses.length)
     const label = portCardLabel(port.name, port.statuses)
     let card = cards.get(port.key)
 
+    // The two forms anchor differently — a stack sits ON its port, a bubble sits centred over it —
+    // and Marker has no setAnchor, so crossing the threshold rebuilds the marker. That happens once
+    // per crossing for under a dozen ports, which is cheap; the alternative is offset arithmetic
+    // that has to stay in sync with the CSS transform-origin.
+    if (card && card.mode !== mode) {
+      card.marker.remove()
+      cards.delete(port.key)
+      card = null
+    }
+
     if (!card) {
       const el = document.createElement('div')
-      el.className = 'port-card'
-      // anchor 'bottom' puts the stack's base ON the port rather than centring it over the dot.
-      const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+      el.className = mode === 'card' ? 'port-card' : 'port-card port-card--bubble'
+      const marker = new maplibregl.Marker({
+        element: el,
+        anchor: mode === 'card' ? 'bottom' : 'center',
+      })
         .setLngLat(port.coordinates)
         .addTo(map)
-      card = { el, marker, html: null }
+      card = { el, marker, html: null, mode }
       cards.set(port.key, card)
     }
 
@@ -257,6 +277,10 @@ export default function MapView({ shipments, onSelect }) {
   // port key -> { el, marker, html }. Lives in a ref, not state: markers are imperative DOM
   // that must survive re-renders, and mutating them should never trigger one.
   const cardsRef = useRef(new Map())
+  // Last built ports + which form they are drawn in, so the zoom handler can swap between the card
+  // and the bubble without re-running the whole vessel pass.
+  const portsRef = useRef([])
+  const cardModeRef = useRef(null)
   const selectedIdRef = useRef(null)
   const [mapReady, setMapReady] = useState(false)
 
@@ -290,6 +314,17 @@ export default function MapView({ shipments, onSelect }) {
     }
     applyCardScale()
     map.on('zoom', applyCardScale)
+
+    // Card <-> bubble on the `zoom` event rather than `zoomend`, so the swap lands as you cross the
+    // threshold instead of snapping after you let go. The guard keeps it to a comparison per frame:
+    // real work happens only on a crossing. Positions still recompute on zoomend only (CLAUDE.md §6).
+    const applyCardMode = () => {
+      const mode = cardMode(map.getZoom())
+      if (mode === cardModeRef.current) return
+      cardModeRef.current = mode
+      syncPortCards(map, portsRef.current, cardsRef.current)
+    }
+    map.on('zoom', applyCardMode)
     map.on('resize', () => {
       map.setMinZoom(computeMinZoom(map.getContainer().clientWidth))
     })
@@ -583,6 +618,8 @@ export default function MapView({ shipments, onSelect }) {
     const rebuild = () => {
       const { shipFC, ports, byId } = buildFeatures(shipments, routesByKey, map, portPoints)
       vesselsByIdRef.current = byId
+      portsRef.current = ports
+      cardModeRef.current = cardMode(map.getZoom())
       map.getSource('vessels')?.setData(shipFC)
       syncPortCards(map, ports, cardsRef.current)
 
