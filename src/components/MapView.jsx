@@ -84,10 +84,13 @@ const CARD_BASE_PX = 64
 // and the bottom is pulled down to 0.45, which puts the card at 28.8 CSS px the moment it appears.
 // That is not a guessed number: it is what the old single-stack card measured at the same zoom, so
 // the tri-arm card at its smallest costs no more screen than the thing it replaced.
+// The top lands on 64 px, the size judged right at zoomed-in levels. It reads as the identity stop
+// for a reason: for several iterations this transform was inert (see syncPortCards) and every card
+// drew at a flat CARD_BASE_PX, so 64 px at high zoom is the size that was actually being approved.
 const CARD_SCALE_STOPS = [
-  [3, 0.45], // 28.8 px — cards appear
+  [3, 0.55], // 35 px — cards appear
   [6, 0.75], // 48 px
-  [10, 1.1], // 70 px
+  [10, 1.0], // 64 px
 ]
 const cardScale = (zoom) => {
   const stops = CARD_SCALE_STOPS
@@ -147,42 +150,47 @@ function syncPortCards(map, ports, cards) {
 
   for (const port of ports) {
     seen.add(port.key)
-    const html =
+    // The card returns a centring translate alongside its markup (portCard.js); the bubble is
+    // already drawn about its own origin and needs none.
+    const { markup, dx, dy } =
       mode === 'card'
         ? portCardSvg(port.statuses, CARD_BASE_PX)
-        : portBubbleSvg(port.statuses.length)
+        : { markup: portBubbleSvg(port.statuses.length), dx: 0, dy: 0 }
     const label = portCardLabel(port.name, port.statuses)
     let card = cards.get(port.key)
 
-    // The two forms anchor differently — a stack sits ON its port, a bubble sits centred over it —
-    // and Marker has no setAnchor, so crossing the threshold rebuilds the marker. That happens once
-    // per crossing for under a dozen ports, which is cheap; the alternative is offset arithmetic
-    // that has to stay in sync with the CSS transform-origin.
-    if (card && card.mode !== mode) {
-      card.marker.remove()
-      cards.delete(port.key)
-      card = null
-    }
-
     if (!card) {
+      // TWO ELEMENTS, and the split is load-bearing. MapLibre writes `element.style.transform`
+      // inline on the marker element every time it repositions, and an inline style beats a
+      // stylesheet rule on the same element — so a `transform` of ours on the marker element is
+      // silently discarded. (That is exactly what happened: --card-scale was inert for several
+      // iterations and every card rendered at a constant CARD_BASE_PX.) The outer div is
+      // MapLibre's; the inner one is ours. Don't merge them.
       const el = document.createElement('div')
-      el.className = mode === 'card' ? 'port-card' : 'port-card port-card--bubble'
-      const marker = new maplibregl.Marker({
-        element: el,
-        anchor: mode === 'card' ? 'bottom' : 'center',
-      })
+      el.className = 'port-card'
+      const inner = document.createElement('div')
+      el.appendChild(inner)
+      // Both forms centre on the port now, so there is nothing to rebuild when the zoom threshold
+      // is crossed — only the class and the markup change.
+      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat(port.coordinates)
         .addTo(map)
-      card = { el, marker, html: null, mode }
+      card = { el, inner, marker, html: null, mode: null }
       cards.set(port.key, card)
     }
 
     card.marker.setLngLat(port.coordinates)
+    if (card.mode !== mode) {
+      card.inner.className = mode === 'card' ? 'port-card__inner' : 'port-card__inner--bubble'
+      card.mode = mode
+    }
     // Only touch innerHTML when the stack actually changed — reassigning it every refresh would
     // rebuild the SVG DOM and throw away any in-flight CSS transition.
-    if (card.html !== html) {
-      card.el.innerHTML = html
-      card.html = html
+    if (card.html !== markup) {
+      card.inner.innerHTML = markup
+      card.inner.style.setProperty('--card-dx', `${dx.toFixed(2)}px`)
+      card.inner.style.setProperty('--card-dy', `${dy.toFixed(2)}px`)
+      card.html = markup
     }
     card.el.title = label
     card.el.setAttribute('aria-label', label)

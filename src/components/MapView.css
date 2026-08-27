@@ -21,24 +21,32 @@
   --card-scale: 0.8;
 }
 
+/* THE MARKER ELEMENT. Deliberately carries no `transform` — MapLibre writes one inline here on
+   every reposition, and an inline style beats a stylesheet rule on the same element, so anything
+   we set would be silently discarded. Ours goes on the inner element below. */
 .port-card {
-  /* transform-origin bottom so the stack grows UPWARD from the port it sits on, rather than
-     drifting off it as the scale changes. Pairs with the marker's anchor: 'bottom'. */
-  transform: scale(var(--card-scale));
-  transform-origin: 50% 100%;
   line-height: 0; /* kill the inline-descender gap under the svg, which would lift the stack */
-  will-change: transform;
   pointer-events: none; /* cards are not interactive yet — see CLAUDE.md §8 port summary */
+}
+
+.port-card__inner {
+  /* Rightmost applies first: the translate lands in UNSCALED px, putting the arms' shared origin
+     on the box centre (computed per card in portCard.js), and then the whole thing scales about
+     that centre — which the marker has anchored on the port. So the port stays fixed at every
+     zoom and every stack height. */
+  transform: scale(var(--card-scale)) translate(var(--card-dx, 0px), var(--card-dy, 0px));
+  transform-origin: 50% 50%;
+  line-height: 0;
+  will-change: transform;
 }
 
 /* The zoomed-out form: one count bubble per port, centred on it.
    It does NOT ride --card-scale. The card scales because it stands for physical containers sitting
    at a place; the bubble is a readout, and a readout that shrinks as you zoom out is the opposite
-   of what it is for. Below the threshold the curve only spans 0.60-0.65 anyway, so this costs
-   nothing but legibility gained. */
-.port-card--bubble {
+   of what it is for. It is drawn about its own origin, so it needs no centring translate either. */
+.port-card__inner--bubble {
   transform: none;
-  transform-origin: 50% 50%;
+  line-height: 0;
 }
 
 .port-card__svg {

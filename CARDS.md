@@ -134,15 +134,13 @@ Each box uses three shades of its base: top lightest, long side mid, door end da
 
 ---
 
-## 4. Sizing
+## 4. Sizing and placement
 
 **The SVG `viewBox` does the shrink-to-fit.** The stack is drawn at natural size, the viewBox is
 set to its bounding box, and the `<svg>` gets a fixed rendered size with
-`preserveAspectRatio="xMidYMax meet"`. SVG scales it — a taller stack simply comes out smaller,
+`preserveAspectRatio="xMidYMid meet"`. SVG scales it — a taller stack simply comes out smaller,
 with no manual maths.
 
-- **`xMidYMax`**, not `xMidYMid`: it pins the stack to the bottom of the box so its base lands on
-  the port when the marker is anchored `'bottom'`. `xMidYMid` floats short stacks above the port.
 - **`vector-effect="non-scaling-stroke"`** is load-bearing. Without it the outline is in user units
   and shrinks with the viewBox, so a tall stack or a low zoom drives it under one device pixel and
   the edges break up — the exact failure the vessel hull hit (CLAUDE.md §5.5). With it, the stroke
@@ -150,21 +148,47 @@ with no manual maths.
 - **`CARD_BASE_PX = 64`.** The tri-arm card is **~2× wider** than the single mixed stack it
   replaced (three 2-wide footprints side by side), and the square viewBox fits by width — so at the
   old 44 the boxes came out half-size.
-- **`CARD_SCALE_STOPS`: z3→0.45, z6→0.75, z10→1.1.** Cards are DOM markers, so they do not scale
-  with the map like the sprites they replaced; `--card-scale` on `.map-container` is driven from the
-  map's `zoom` event. The curve starts at `FIRST_LABEL_ZOOM`, where cards start existing — below it
-  a port draws a bubble, which opts out of this scale, so a stop further down describes nothing.
+- **`CARD_SCALE_STOPS`: z3→0.55, z6→0.75, z10→1.0** — 35 / 48 / 64 CSS px. The curve starts at
+  `FIRST_LABEL_ZOOM`, where cards start existing; below it a port draws a bubble, which opts out of
+  this scale, so a stop further down would describe nothing. The top reads as an identity stop for a
+  reason — see the trap below.
 
-  It is **weighted toward the bottom**: that extra width lands hardest where there is least room
-  for it. The top is unchanged from the sprites' old curve (1.1 at z10, where a card sits over one
-  metro), and the bottom pulls down to 28.8 CSS px the moment a card appears — which is what the
-  old single-stack card measured at the same zoom, so the tri-arm card at its smallest costs no
-  more screen than the thing it replaced. Net: −31% at z3, −13% at z5, unchanged by z10.
-- **`xMidYMax` + `anchor: 'bottom'` puts the card's baseline on the port, not its centre.** So the
-  arms sit above and around the port rather than radiating from it symmetrically — a red-only pile
-  reads as displaced NE. Anchoring the *pie centre* on the port would be truer to the model, but it
-  needs a per-card marker offset (the origin's position in the rendered box moves with stack
-  height) and it would put the green pile on top of the port's dot and label.
+### Two elements, and why
+
+`.port-card` is the marker element and carries **no `transform` of ours**. MapLibre writes
+`element.style.transform` inline on it every reposition, and an inline style beats a stylesheet rule
+on the same element, so anything we set there is silently discarded. Ours goes on `.port-card__inner`
+inside it.
+
+**This is not hypothetical.** `--card-scale` was written onto the marker element and was therefore
+inert for several iterations: every card rendered at a flat `CARD_BASE_PX` at all zooms, two rounds
+of curve tuning changed nothing on screen, and `getBoundingClientRect` quietly returned the same
+64×64 the whole time. If you ever merge these two divs, it comes straight back. §7's live check
+exists to catch it.
+
+### The card is centred on the port, exactly
+
+The port belongs at the point the three arms radiate from — viewBox `(0,0)` — so the marker is
+anchored `'center'` and the card carries a per-card translate that puts that origin on the box
+centre:
+
+```css
+transform: scale(var(--card-scale)) translate(var(--card-dx), var(--card-dy));
+transform-origin: 50% 50%;
+```
+
+Rightmost applies first, so the translate lands in **unscaled** px and then everything scales about
+the centre — which the marker has pinned to the port.
+
+**The anchor alone cannot do this.** The shrink-to-fit means the origin's place inside the box moves
+with stack height, so any fixed anchor drifts as a port fills up: measured, the needed correction is
++0.2 px for a 2-container card but −13.9 px at 12 containers. `portCardSvg` therefore returns
+`{ markup, dx, dy }` and solves for it — four lines, residual ~0.003 px.
+
+The card used to hang by its bottom edge (`anchor: 'bottom'` + `xMidYMax`), which floated the arms'
+origin **413 km north** of the port at z3 and drew New York's red containers 592 km out — past
+Boston, which is 306 km away. That is the failure mode this section exists to prevent: the error is
+a fixed number of *screen pixels*, so it is invisible when zoomed in and enormous when zoomed out.
 
 **No cap on stack height** — every container is drawn. The consequence, accepted knowingly: a
 20-container port split 9/7/4 puts a 5-row tower in one arm, shrunk into the card box, and at world
@@ -206,12 +230,10 @@ snapping after you let go. The handler is guarded on the mode actually changing,
 comparison per frame and does real work only on a crossing. Positions still recompute on `zoomend`
 only (CLAUDE.md §6).
 
-The two forms anchor differently — a stack sits *on* its port (`anchor: 'bottom'`), a bubble sits
-centred over it — and `Marker` has no `setAnchor`, so crossing the threshold rebuilds the marker.
-Once per crossing for under a dozen ports is cheap; the alternative is offset arithmetic that has
-to stay in sync with the CSS `transform-origin`. The bubble also opts out of `--card-scale`: the
-card scales because it stands for physical containers at a place, but a readout that shrinks as you
-zoom out is the opposite of what it is for.
+Both forms centre on the port, so a crossing swaps the class and the markup and nothing else —
+no marker is rebuilt. The bubble opts out of `--card-scale` (and needs no centring translate, being
+drawn about its own origin): the card scales because it stands for physical containers at a place,
+but a readout that shrinks as you zoom out is the opposite of what it is for.
 
 ---
 

@@ -120,10 +120,12 @@ function armFootprint(arm) {
 /**
  * @param {Array<'red'|'blue'|'green'>} statuses one entry per container at this port
  * @param {number} size  rendered box in CSS px (the stack shrinks to fit inside it)
- * @returns {string} inline SVG markup, or '' when the port has no containers
+ * @returns {{markup: string, dx: number, dy: number}} the SVG, plus the pre-scale translate that
+ *   puts the ARMS' ORIGIN on the box centre (see the note where they are computed). `markup` is ''
+ *   when the port has no containers.
  */
 export function portCardSvg(statuses, size = 72) {
-  if (!statuses || statuses.length === 0) return '' // no containers -> no card
+  if (!statuses || statuses.length === 0) return { markup: '', dx: 0, dy: 0 } // no containers
 
   // ── The frame ───────────────────────────────────────────────────────────────────────
   //
@@ -187,16 +189,31 @@ export function portCardSvg(statuses, size = 72) {
   const pad = 1.5
   const vb = [minX - pad, minY - pad, maxX - minX + pad * 2, maxY - minY + pad * 2]
 
+  // WHERE THE ARMS' ORIGIN LANDS, and the translate that moves it to the box centre.
+  //
+  // The port belongs at the point the three arms radiate from — viewBox (0,0) — not at the card's
+  // bottom edge. The card used to hang by that edge, which floated the origin ~400 km north of the
+  // port at z3 and drew New York's containers past Boston.
+  //
+  // It cannot be fixed by the marker's `anchor` alone: the shrink-to-fit means the origin's place
+  // inside the box moves with stack height, so any fixed anchor drifts as a port fills up. Solving
+  // for it exactly costs four lines. `meet` scales by the tighter axis and centres the remainder,
+  // so the origin's rendered position is:
+  const k = Math.min(size / vb[2], size / vb[3])
+  const originX = (size - vb[2] * k) / 2 + (0 - vb[0]) * k
+  const originY = (size - vb[3] * k) / 2 + (0 - vb[1]) * k
+  // ...and this is the translate that takes it to the centre, in UNSCALED CSS px. The caller
+  // applies it inside the same transform as --card-scale, right of the scale so it lands first.
+  const dx = size / 2 - originX
+  const dy = size / 2 - originY
+
   // The viewBox does the shrink-to-fit: the card is drawn at natural size and SVG scales it into
   // `size`. Taller stacks simply come out smaller, with no manual scaling maths — and it stays
   // vector-crisp at every zoom and devicePixelRatio, which is the point of SVG over a bitmap.
-  //
-  // xMidYMax pins the card to the BOTTOM of the box so the green arm's front edge lands on the
-  // port when the marker is anchored 'bottom'. xMidYMid would float short cards above the port.
-  return (
+  const markup =
     `<svg class="port-card__svg" width="${size}" height="${size}" ` +
     `viewBox="${vb.map((v) => v.toFixed(2)).join(' ')}" ` +
-    `preserveAspectRatio="xMidYMax meet" aria-hidden="true" ` +
+    `preserveAspectRatio="xMidYMid meet" aria-hidden="true" ` +
     // vector-effect="non-scaling-stroke" is what keeps the outline honest. Without it the stroke
     // is in USER units, so it shrinks with the viewBox — a tall stack (or a low zoom) drives it
     // under one device pixel and the edges break up, exactly the failure the vessel hull hit.
@@ -205,7 +222,8 @@ export function portCardSvg(statuses, size = 72) {
     `vector-effect="non-scaling-stroke">` +
     polys.join('') +
     `</svg>`
-  )
+
+  return { markup, dx, dy }
 }
 
 // ── The zoomed-out form ───────────────────────────────────────────────────────────────

@@ -293,6 +293,13 @@ port became a smear.
   a lone pile is never re-centred and that signal survives.
 - **The SVG viewBox does the shrink-to-fit**; `vector-effect="non-scaling-stroke"` keeps the
   outline from going sub-pixel on tall stacks — the §5.5 failure, in a different disguise.
+- **The card is centred on the port exactly**, at the point the arms radiate from. `anchor` alone
+  cannot do it — the shrink-to-fit moves that origin within the box as a port fills up — so
+  `portCardSvg` returns a per-card translate with the markup. It previously hung by its bottom edge,
+  which put New York's containers past Boston at z3.
+- **Our transform goes on an INNER div, never the marker element.** MapLibre writes
+  `element.style.transform` inline there, and inline beats a stylesheet rule — `--card-scale` was
+  silently inert for several iterations because of this. See CARDS.md §4.
 - **Cards do not scale with the map** the way sprites do: `--card-scale` on `.map-container` is
   driven from the `zoom` event on the old sprite curve (z2→0.6, z6→0.8, z10→1.1).
 
