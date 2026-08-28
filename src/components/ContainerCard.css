@@ -71,12 +71,22 @@
 
 /* ── Header ─────────────────────────────────────────────────────────────────────────── */
 
+/* A ROW of two sibling controls. It stopped being one big button when the notes toggle arrived:
+   a button inside a button is invalid, and the caret belongs inside the control it operates. */
 .ccard__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.ccard__expand {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0; /* lets .ccard__id ellipsis instead of shoving the toggle off the card */
   /* It is a <button> for keyboard reach, not for looks — strip the control chrome. */
   margin: 0;
   padding: 0;
@@ -88,10 +98,114 @@
   color: inherit;
 }
 
-.ccard__head:focus-visible {
+.ccard__expand:focus-visible,
+.ccard__notes:focus-visible {
   outline: 2px solid rgb(var(--c-signal-400));
   outline-offset: 3px;
   border-radius: var(--radius-lg);
+}
+
+/* ── Notes toggle: a sticky note ─────────────────────────────────────────────────────
+   Icon, not a word. The header already carries a shipment id and a status chip; a third piece of
+   text would compete with both. Square target so it reads as an icon button rather than a pill. */
+.ccard__notes {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid rgb(var(--c-fog-200));
+  border-radius: var(--radius-lg, 8px);
+  background: rgb(var(--c-fog-50));
+  color: rgb(var(--c-fog-500));
+  cursor: pointer;
+  transition:
+    background var(--motion-fast, 140ms) var(--ease-out-expo, ease),
+    color var(--motion-fast, 140ms) var(--ease-out-expo, ease),
+    border-color var(--motion-fast, 140ms) var(--ease-out-expo, ease);
+}
+
+.ccard__notes:hover {
+  color: rgb(var(--c-harbor-800));
+  border-color: rgb(var(--c-fog-300));
+}
+
+/* Pressed reads as pressed. It is a toggle, and which face you are looking at has to be obvious
+   from the control that flipped you there. */
+.ccard__notes--on {
+  background: rgb(var(--c-harbor-900));
+  border-color: rgb(var(--c-harbor-900));
+  color: #fff;
+}
+
+/* OPEN notes only, pinned to the corner of the icon. It rides the accent rather than a status
+   colour: red / blue / green are spoken for by container status, and a fourth meaning on those
+   hues would misread. */
+.ccard__notes-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  border: 1.5px solid #fff;
+  background: rgb(var(--c-signal-500));
+  color: #fff;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 9px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── The two faces ──────────────────────────────────────────────────────────────────── */
+
+/* Both stay mounted and share one grid cell, but ONLY THE FACTS FACE IS IN FLOW — the notes face
+   is taken out of it with position: absolute.
+   That asymmetry is the whole trick. Stacking both in flow makes the card as tall as the TALLER
+   one, so a shipment with two notes grew its card ~56px and carried that dead space on the facts
+   side too. Measuring from the facts face alone means a card is the same height whether it holds
+   notes or not, flipping never moves the tray, and a long note list scrolls inside itself. */
+.ccard__faces {
+  display: grid;
+  position: relative;
+}
+
+.ccard__face {
+  grid-area: 1 / 1;
+  min-width: 0;
+  transition:
+    opacity var(--motion-fast, 140ms) var(--ease-out-expo, ease),
+    transform var(--motion-fast, 140ms) var(--ease-out-expo, ease);
+}
+
+.ccard__face--notes {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.ccard__face[data-on='false'] {
+  opacity: 0;
+  /* visibility, not display: display:none would drop the facts face out of flow and the card would
+     collapse to the height of whichever face is showing — the jump this layout exists to avoid. */
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(4px);
+}
+
+.ccard__face[data-on='true'] {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
 }
 
 /* WEIGHT 500 IS THE CEILING for anything in --font-mono: index.html requests DM Mono at 400 and
@@ -125,7 +239,7 @@
   transition: transform var(--motion-fast, 140ms) var(--ease-out-expo, ease);
 }
 
-.ccard__head[aria-expanded='true'] .ccard__caret {
+.ccard__expand[aria-expanded='true'] .ccard__caret {
   transform: translateY(1px) rotate(-135deg);
 }
 
@@ -255,8 +369,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ccard {
+  .ccard,
+  .ccard__face,
+  .ccard__notes {
     transition: none;
+  }
+  .ccard__face[data-on='false'] {
+    transform: none;
   }
   .ccard:hover {
     transform: none;

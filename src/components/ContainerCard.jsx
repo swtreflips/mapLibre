@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import { containerStatus } from '../lib/vesselMath'
+import { openCount, subscribe } from '../lib/notes'
+import NotesPad from './NotesPad'
 import './ContainerCard.css'
 
 // One container, as a card in the tray.
@@ -36,77 +38,146 @@ function Fact({ label, children, wide }) {
 // no ring is drawn.
 export default function ContainerCard({ shipment: s, matched }) {
   const [open, setOpen] = useState(false)
+  // Which FACE is showing. The card does not grow to fit notes — it swaps what occupies its body,
+  // because the tray only fits about three cards and anything additive makes that worse.
+  const [notesFace, setNotesFace] = useState(false)
+  // The count on the toggle is the only sign, from the facts face, that anything is on the other
+  // one — so it has to track writes made anywhere, including from a second card showing the same
+  // shipment in a search result.
+  const notes = useSyncExternalStore(
+    subscribe,
+    () => openCount(s.shipment),
+    () => openCount(s.shipment),
+  )
   const status = containerStatus(s)
   const items = s.items ?? []
 
   return (
     <article className={`ccard ccard--${status.tone}${matched ? ' ccard--matched' : ''}`}>
       {/*
-        The whole header is the toggle, not a separate chevron: the card is one target and the
-        target is the thing you are looking at. A <button> rather than a click handler on the
+        LEGACY NOTE, kept because the reasoning still applies to the expand control below:
+        the caret rides inside the control it operates rather than sitting in a footer a hairline
+        away from it. A <button> rather than a click handler on the
         <article> so it is reachable by Tab and announces its state. The caret rides INSIDE the
         button so the affordance sits on the control — an earlier version put "Show more" in a
         footer, a hairline away from the thing that actually toggled.
       */}
-      <button
-        type="button"
-        className="ccard__head"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <span className="ccard__id">{dash(s.shipment)}</span>
-        {/* The chip carries a WORD as well as a tone. On the map, which arm a container sits in
-            encodes status independently of hue; a flat tray has no arms, so the label does that
-            job here. Never show the tone alone. */}
-        <span className="ccard__chip">{status.label}</span>
-        <span className="ccard__caret" aria-hidden="true" />
-      </button>
+      {/* The header is a ROW of two sibling controls, not one button: a button inside a button is
+          invalid, and the caret lives inside the expand control on purpose (the affordance sits on
+          the thing it operates). So the notes toggle sits beside it rather than within it. */}
+      <div className="ccard__head">
+        <button
+          type="button"
+          className="ccard__expand"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <span className="ccard__id">{dash(s.shipment)}</span>
+          {/* The chip carries a WORD as well as a tone. On the map, which arm a container sits in
+              encodes status independently of hue; a flat tray has no arms, so the label does that
+              job here. Never show the tone alone. */}
+          <span className="ccard__chip">{status.label}</span>
+          {/* Hidden on the notes face — line items belong to the facts. */}
+          {!notesFace && <span className="ccard__caret" aria-hidden="true" />}
+        </button>
+        {/* A sticky note, not a word. The header already carries a shipment id and a status chip;
+            a third piece of text would compete with both, and the icon reads instantly as "the
+            written-on side of this card". aria-label and title carry the name for everyone else. */}
+        <button
+          type="button"
+          className={notesFace ? 'ccard__notes ccard__notes--on' : 'ccard__notes'}
+          aria-pressed={notesFace}
+          aria-label={notesFace ? 'Show shipment details' : 'Show notes'}
+          title={notesFace ? 'Show shipment details' : 'Notes'}
+          onClick={() => setNotesFace((v) => !v)}
+        >
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
+            {/* Square with the bottom-right corner turned up — the folded-corner note everyone
+                recognises. Two paths so the fold reads as a fold rather than a notch. */}
+            <path
+              d="M2.6 2.6h10.8v7.2L9.8 13.4H2.6z"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M13.4 9.8H9.8v3.6"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinejoin="round"
+            />
+          </svg>
+          {/* OPEN notes only. A count that included finished ones would keep nagging about work
+              already done, which is how a badge stops meaning anything. */}
+          {notes > 0 && <span className="ccard__notes-count">{notes}</span>}
+        </button>
+      </div>
 
       <p className="ccard__sub">{dash(s.container)}</p>
 
-      <dl className="ccard__facts">
-        {/* Ends at Lastcy, NOT at the port of discharge. The box's journey finishes at the yard,
+      {/* BOTH FACES STAY MOUNTED, stacked in one grid cell, so the card's height is the max of the
+          two and flipping never reflows the tray beneath it. No measuring, no fixed height, no
+          jump. `inert` keeps Tab out of the hidden one — otherwise focus lands in an invisible
+          textarea. */}
+      <div className="ccard__faces">
+        <div className="ccard__face" data-on={!notesFace} inert={notesFace ? '' : undefined}>
+          <dl className="ccard__facts">
+            {/* Ends at Lastcy, NOT at the port of discharge. The box's journey finishes at the yard,
             and the drayage leg beyond the port is the part ops still has to arrange. */}
-        <Fact label="Route" wide>
-          {dash(s.port_of_loading)} <span className="ccard__arrow">→</span> {dash(s.Lastcy)}
-        </Fact>
-        <Fact label="ETD">{dash(s.actual_shipping)}</Fact>
-        <Fact label="ETA">
-          {dash(s.expected_portdate)}
-          {status.detail ? <span className="ccard__muted">{status.detail}</span> : null}
-        </Fact>
-        {/* Always rendered, '—' while at sea. It used to swap places with the ETA, which meant a
+            <Fact label="Route" wide>
+              {dash(s.port_of_loading)} <span className="ccard__arrow">→</span> {dash(s.Lastcy)}
+            </Fact>
+            <Fact label="ETD">{dash(s.actual_shipping)}</Fact>
+            <Fact label="ETA">
+              {dash(s.expected_portdate)}
+              {status.detail ? <span className="ccard__muted">{status.detail}</span> : null}
+            </Fact>
+            {/* Always rendered, '—' while at sea. It used to swap places with the ETA, which meant a
             card silently changed shape on arrival and the two dates could never be read together
             — the exact comparison you want when a box lands late. */}
-        <Fact label="Actual port date" wide>
-          {dash(s.actual_portdate)}
-        </Fact>
-        <Fact label="Forwarder">{dash(s.freight_forwarder)}</Fact>
-        <Fact label="Drayage">{dash(s.drayage_provider)}</Fact>
-        <Fact label="MBL" wide>
-          {dash(s.mbl)}
-        </Fact>
-      </dl>
+            <Fact label="Actual port date" wide>
+              {dash(s.actual_portdate)}
+            </Fact>
+            <Fact label="Forwarder">{dash(s.freight_forwarder)}</Fact>
+            <Fact label="Drayage">{dash(s.drayage_provider)}</Fact>
+            <Fact label="MBL" wide>
+              {dash(s.mbl)}
+            </Fact>
+          </dl>
 
-      {open && (
-        <dl className="ccard__facts ccard__facts--more">
-          <Fact label="Line items" wide>
-            {items.length === 0 ? (
-              <span className="ccard__muted ccard__muted--bare">No line items</span>
-            ) : (
-              <ul className="ccard__items">
-                {items.map((i, n) => (
-                  <li key={`${i.po_number}-${i.item}-${n}`}>
-                    <span className="ccard__item-po">{dash(i.po_number)}</span>
-                    <span className="ccard__item-name">{dash(i.item)}</span>
-                    <span className="ccard__item-qty">{Number(i.qty || 0).toLocaleString()}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Fact>
-        </dl>
-      )}
+          {open && (
+            <dl className="ccard__facts ccard__facts--more">
+              <Fact label="Line items" wide>
+                {items.length === 0 ? (
+                  <span className="ccard__muted ccard__muted--bare">No line items</span>
+                ) : (
+                  <ul className="ccard__items">
+                    {items.map((i, n) => (
+                      <li key={`${i.po_number}-${i.item}-${n}`}>
+                        <span className="ccard__item-po">{dash(i.po_number)}</span>
+                        <span className="ccard__item-name">{dash(i.item)}</span>
+                        <span className="ccard__item-qty">
+                          {Number(i.qty || 0).toLocaleString()}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Fact>
+            </dl>
+          )}
+        </div>
+
+        <div
+          className="ccard__face ccard__face--notes"
+          data-on={notesFace}
+          inert={notesFace ? undefined : ''}
+        >
+          <NotesPad shipment={s.shipment} active={notesFace} />
+        </div>
+      </div>
     </article>
   )
 }

@@ -437,6 +437,30 @@ the data held exactly 1 — grouping is what made it honest.
   which arm a container sits in encodes status independently of hue (CARDS.md §2); a flat tray has
   no arms, so the label does that job there. `containerStatus()` in
   [vesselMath.js](src/lib/vesselMath.js) returns both; `containerColor` is now a wrapper on it.
+- **The card has TWO FACES, and a sticky-note icon flips between them.** Face one is the fact grid;
+  face two is a notepad ([NotesPad.jsx](src/components/NotesPad.jsx),
+  [notes.js](src/lib/notes.js)). Notes replace the facts rather than sitting under them — the tray
+  fits about three cards, so anything additive makes the space problem worse. The icon carries a
+  badge of **open** notes, which is the only sign from the facts side that anything is on the other.
+
+  **Only the facts face is in flow**; the notes face is `position: absolute` over it. That is what
+  keeps a card the same height whether it holds notes or not — stacking both in flow makes the card
+  as tall as the taller one, and a shipment with two notes grew ~56 px and carried that dead space
+  on the facts side too. A long note list scrolls inside itself instead.
+
+  Notes are **free text plus a `done` flag**, not §14's `category`/`severity` enum: a reminder needs
+  to be completable, and a required dropdown would tax every note for an urgent filter that does not
+  exist yet. The record already carries §14's field names, so adding the enum later touches no
+  stored data.
+
+  **Storage is localStorage, deliberately** — `notes.js` is shaped like the Supabase table it
+  becomes, so the swap is one file. There is no auth (§13) and the anon key ships in a public
+  bundle from a public repo; granting anon `insert` would open a public write path into the
+  database, which is a different thing from the read-only exposure that exists today. The cost,
+  stated plainly: **notes live in one browser and the team cannot see each other's** until auth
+  lands. Components read the store through `useSyncExternalStore`, so `listNotes` must keep
+  returning a referentially stable array — it memoises for exactly that reason.
+
 - **Family with RatesApp, not a copy.** Both apps load the *same* `linen` skin, so the resemblance
   is token + shape reuse — 2xl radius, fog-200 hairline, white ground, `--shadow-card`, a 2px
   status bar, mono uppercase micro-labels, tabular numerals. RatesApp reaches those variables
