@@ -129,7 +129,7 @@ const EMPTY_FC = { type: 'FeatureCollection', features: [] }
 // before it. It answers one question — what does rail geometry look like on this basemap — and is
 // not a feature. The real one takes the pair from a shipment's intermodal leg.
 // Delete this constant and the useRailRoute call below when that lands.
-const RAIL_TEST = { origin: 'Los Angeles, CA', destination: 'Cincinnati, OH' }
+const RAIL_TEST = { origin: 'Los Angeles, CA', destination: 'Minneapolis, MN' }
 
 // Search dimming for the vessel layer, sharing the port card's constant so a ghosted ship and a
 // ghosted container box sit at the same remove. Every feature carries matched: 1 when no filter is
