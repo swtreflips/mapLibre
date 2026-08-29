@@ -17,6 +17,7 @@ import { relaxOverlaps } from '../map/declutter'
 import { buildHolders, etaDisagreements } from '../lib/holders'
 import { useUsPorts } from '../hooks/useUsPorts'
 import { useLoadingPorts } from '../hooks/useLoadingPorts'
+import { useRailRoute } from '../hooks/useRailRoute'
 
 const INITIAL_CENTER = [0, 20]
 const INITIAL_ZOOM = 1.5
@@ -123,6 +124,12 @@ const bubbleScale = (zoom) => interpolateStops(BUBBLE_SCALE_STOPS, zoom)
 const computeMinZoom = (width) => Math.log2(width / 512)
 
 const EMPTY_FC = { type: 'FeatureCollection', features: [] }
+
+// HARDCODED TEST LANE for the new `rail_routes` table, exactly as the drayage leg was proved out
+// before it. It answers one question — what does rail geometry look like on this basemap — and is
+// not a feature. The real one takes the pair from a shipment's intermodal leg.
+// Delete this constant and the useRailRoute call below when that lands.
+const RAIL_TEST = { origin: 'Los Angeles, CA', destination: 'Cincinnati, OH' }
 
 // Search dimming for the vessel layer, sharing the port card's constant so a ghosted ship and a
 // ghosted container box sit at the same remove. Every feature carries matched: 1 when no filter is
@@ -367,6 +374,7 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
   const { routesByKey, loading, error } = useRoutes()
   const { usPorts } = useUsPorts()
   const { intlPorts } = useLoadingPorts()
+  const { route: railRoute } = useRailRoute(RAIL_TEST.origin, RAIL_TEST.destination)
 
   // --- Map init (once). Do not rewrite this block. ---
   useEffect(() => {
@@ -548,6 +556,40 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
         paint: {
           'line-color': palette.route,
           'line-width': ['interpolate', ['linear'], ['zoom'], 5, 2, 12, 4],
+        },
+      })
+
+      // Rail: the intermodal leg, from `rail_routes`. HARDCODED TEST PAIR — see RAIL_TEST below.
+      //
+      // Drawn as the standard cartographic RAILWAY HATCH: a dark solid line with short light
+      // dashes laid over it, which reads as sleepers on a track. That matters because the map now
+      // carries three kinds of leg, and they are told apart by LINE STYLE rather than colour so the
+      // distinction survives for a colourblind reader (the same rule the drayage layer follows):
+      //   ocean   thin dashed          remaining-route
+      //   truck   solid, white casing  drayage-route
+      //   rail    solid + hatch        this
+      //
+      // line-dasharray units are multiples of the LINE WIDTH, not pixels — the same trap the state
+      // borders hit (CLAUDE.md §15) — so the hatch spacing changes if you change line-width here.
+      map.addSource('rail-route', { type: 'geojson', data: EMPTY_FC })
+      map.addLayer({
+        id: 'rail-route-bed',
+        type: 'line',
+        source: 'rail-route',
+        layout: { 'line-cap': 'butt', 'line-join': 'round' },
+        paint: { 'line-color': '#4a4a4a', 'line-width': 3, 'line-opacity': 0.95 },
+      })
+      map.addLayer({
+        id: 'rail-route-ties',
+        type: 'line',
+        source: 'rail-route',
+        // Butt caps are required: round caps extend each dash past its length and quietly close
+        // the gaps, turning the hatch back into a solid line.
+        layout: { 'line-cap': 'butt', 'line-join': 'round' },
+        paint: {
+          'line-color': '#ffffff',
+          'line-width': 1.6,
+          'line-dasharray': [1.4, 1.4],
         },
       })
 
@@ -742,6 +784,22 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
     if (!mapReady || !map || (!usPorts && !intlPorts)) return
     map.getSource('places')?.setData(buildPlacesFC({ usPorts, intlPorts }))
   }, [mapReady, usPorts, intlPorts])
+
+  // The hardcoded rail leg. Its own effect rather than part of the vessel rebuild: it is not
+  // derived from shipments, and it changes only when the fetch resolves.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!mapReady || !map) return
+    map.getSource('rail-route')?.setData(
+      railRoute
+        ? {
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: railRoute.coordinates },
+            properties: {},
+          }
+        : EMPTY_FC,
+    )
+  }, [mapReady, railRoute])
 
   // Where the port cards get anchored: the ports' own coordinates, the same ones the labels above
   // are drawn at. Memoized because it is a dependency of the rebuild effect — rebuilt inline it
