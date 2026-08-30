@@ -83,15 +83,6 @@ function Snapshot({ stats, onCommit }) {
         <Stat label="Booked" count={stats.atRest.green} tone="green" group="At rest" onPick={pick('green')} />
       </Group>
 
-      <Group title="Attention">
-        <Stat
-          label="Past free day"
-          count={stats.attention.pastFreeDay}
-          group="Attention"
-          onPick={pick('pastFreeDay')}
-        />
-      </Group>
-
       <p className="placeholder">Click a number to see those containers, or a marker on the map.</p>
     </section>
   )

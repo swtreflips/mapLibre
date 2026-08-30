@@ -563,7 +563,6 @@ the containers behind it.
 |---|---|
 | **In transit** | On water · On rail · Arriving ≤7d · Overdue |
 | **At rest** | Aging (red) · At yard (blue) · Booked (green) |
-| **Attention** | Past free day |
 
 **Every classification comes from `shipmentState` / `containerStatus`.** `computeStats` used to
 live inside Sidebar.jsx with its own date arithmetic, and the two drifted: the panel reported

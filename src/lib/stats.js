@@ -10,7 +10,7 @@
 // as sitting in a yard it has not reached. One state machine, or two views of one fleet give two
 // answers.
 
-import { shipmentState, containerStatus, finalYardEta, parseYMD } from './vesselMath'
+import { shipmentState, containerStatus, finalYardEta } from './vesselMath'
 
 const DAY = 86400000
 const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
@@ -21,8 +21,7 @@ export const SOON_DAYS = 7
 /**
  * @param {object[]} shipments
  * @param {Date} today
- * @returns {{total: number, transit: object, atRest: object, attention: object,
- *            ids: Record<string, Set<string>>}}
+ * @returns {{total: number, transit: object, atRest: object, ids: Record<string, Set<string>>}}
  *   Counts, plus the id Set behind each — because every number in the panel is a filter, and
  *   recomputing membership at click time would be a second copy of the same rule, free to drift
  *   from this one exactly as the old Sidebar copy drifted from the map.
@@ -38,7 +37,6 @@ export function computeStats(shipments, today = new Date()) {
     blue: new Set(),
     green: new Set(),
     atRest: new Set(),
-    pastFreeDay: new Set(),
   }
 
   let future = 0
@@ -67,11 +65,6 @@ export function computeStats(shipments, today = new Date()) {
         else if (days <= SOON_DAYS) ids.arrivingSoon.add(id)
       }
     }
-
-    // Independent of state on purpose: a free day expires whether or not anyone has moved the box,
-    // and that is precisely why it is worth counting.
-    const lastFree = parseYMD(s.last_freeday)
-    if (lastFree && lastFree < now) ids.pastFreeDay.add(id)
   }
 
   return {
@@ -89,7 +82,6 @@ export function computeStats(shipments, today = new Date()) {
       blue: ids.blue.size,
       green: ids.green.size,
     },
-    attention: { pastFreeDay: ids.pastFreeDay.size },
     ids,
   }
 }
