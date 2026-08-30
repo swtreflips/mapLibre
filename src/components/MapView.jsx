@@ -35,7 +35,16 @@ const MAX_ZOOM = 17
 // property to 0, so the circle is simply invisible with nothing in the console. Baking the
 // multiplier into the stop OUTPUTS keeps zoom at the top level, which is legal and does work.
 const VESSEL_SCALE_STOPS = [
-  [2, 0.6],
+  // The bottom of the range gets its own segment. Below z2 this used to CLAMP at 0.6, so a ship at
+  // the fully-zoomed-out view was the same size as one at z2 — and at that zoom an icon is sitting
+  // on an ocean rather than near a coastline, so it has nothing to be read against and only
+  // competes with the port bubbles.
+  //
+  // 2.2 is not an arbitrary rejoin point: 0.62 is exactly what the old 2 -> 6 line evaluated to
+  // there, so the segment from 2.2 upward lies on the original line and every zoom above this band
+  // is unchanged to the last decimal. Only 1.6 -> 2.2 moves.
+  [1.6, 0.48],
+  [2.2, 0.62],
   [6, 1.0],
   [10, 1.4],
 ]

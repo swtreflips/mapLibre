@@ -331,7 +331,15 @@ a very different size — don't just change `icon-size`.
   - `nautical*2-sm.png` — `33×28`, 3.4 stroke, `pixelRatio: 1`. Used below z4.
 
   Both report **~33 CSS px logical width**, so one `icon-size` expression drives both and the
-  switch changes outline *weight*, never size. `icon-size` stops (2→0.6, 6→1.0, 10→1.4).
+  switch changes outline *weight*, never size. `icon-size` stops
+  (**1.6→0.48**, 2.2→0.62, 6→1.0, 10→1.4), shared by the vessel and rail layers.
+
+  The bottom segment is separate because below z2 the curve used to **clamp** at 0.6, so an icon at
+  the fully-zoomed-out view was the same size as one at z2 — and down there it floats on an ocean
+  with nothing to be read against, competing with the port bubbles rather than adding to them.
+  **2.2 is a deliberate rejoin, not a round number:** 0.62 is exactly what the old 2→6 line
+  evaluated to there, so everything from 2.2 up is unchanged to the last decimal and only the
+  1.6–2.2 band moved.
 - **Containers** are no longer sprites — each port draws one isometric SVG card (§5.4, CARDS.md).
 
 **The ships were rebuilt from vector because a raster master rotted the contour.** The old art was
