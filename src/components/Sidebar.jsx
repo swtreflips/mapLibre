@@ -1,40 +1,99 @@
 import { useMemo } from 'react'
-import { parseYMD } from '../lib/vesselMath'
+import { computeStats, SOON_DAYS } from '../lib/stats'
 import { KIND_LABELS } from '../lib/search'
 import BrandMark from './BrandMark'
 import ContainerCard from './ContainerCard'
 import SearchBox from './SearchBox'
 import './Sidebar.css'
 
-// Snapshot counts over all shipments (CLAUDE.md §8).
-function computeStats(shipments) {
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-
-  let onWater = 0
-  let arrived = 0
-  let pastFreeDay = 0
-
-  for (const s of shipments) {
-    const start = parseYMD(s.actual_shipping)
-    const end = parseYMD(s.expected_portdate)
-    const actual = parseYMD(s.actual_portdate)
-    const lastFree = parseYMD(s.last_freeday)
-
-    if (start && end && !actual && today >= start && today <= end) onWater += 1
-    if (actual) arrived += 1
-    if (lastFree && lastFree < today) pastFreeDay += 1
-  }
-
-  return { total: shipments.length, onWater, arrived, pastFreeDay }
+// One number in the Snapshot. A live count is a BUTTON — clicking it filters the sidebar to the
+// containers behind it, which is what turns the panel from a readout into the way into a worklist.
+//
+// A count of ZERO is not a button. There is nothing behind it, and a filter that yields an empty
+// list reads as a bug rather than as an empty set.
+function Stat({ label, count, tone, group, onPick }) {
+  const cls = `stat${tone ? ` stat--${tone}` : ''}`
+  const body = (
+    <>
+      {/* The dot repeats what the word already says. It is never alone — colour carries no meaning
+          on its own anywhere in this app (CLAUDE.md §8). */}
+      {tone && <span className="stat__dot" aria-hidden="true" />}
+      <span className="stat__label">{label}</span>
+      <span className="stat__n">{count}</span>
+    </>
+  )
+  if (!count || !onPick) return <div className={cls}>{body}</div>
+  return (
+    <button type="button" className={`${cls} stat--live`} onClick={() => onPick(group, label)}>
+      {body}
+    </button>
+  )
 }
 
-function Row({ label, value }) {
+function Group({ title, count, children }) {
   return (
-    <div className="row">
-      <span className="label">{label}</span>
-      <span className="value">{value || '—'}</span>
+    <div className="statgroup">
+      <p className="statgroup__title">
+        {title}
+        {count != null && <span className="statgroup__n">{count}</span>}
+      </p>
+      <div className="statgroup__rows">{children}</div>
     </div>
+  )
+}
+
+// THE SNAPSHOT — the whole fleet, when nothing is selected.
+//
+// No per-port breakdown, deliberately: the MAP is the per-port view, and repeating it here would
+// push the numbers only this panel can give — on rail, arriving soon — below the fold.
+function Snapshot({ stats, onCommit }) {
+  // The id Set comes straight from computeStats rather than being recomputed here. It is also
+  // memoised, which matters beyond speed: matchedIds is a dependency of MapView's rebuild effect,
+  // and a fresh Set each render would redraw the world.
+  const pick = (key) => (group, label) =>
+    onCommit({ kind: 'stat', group, value: label, ids: stats.ids[key] })
+
+  return (
+    <section className="panel panel--snapshot">
+      <header className="snap__head">
+        <p className="snap__kicker">Snapshot</p>
+        <h3 className="snap__total">
+          {stats.total}
+          <span> container{stats.total === 1 ? '' : 's'}</span>
+        </h3>
+      </header>
+
+      <Group title="In transit" count={stats.transit.water + stats.transit.rail}>
+        <Stat label="On water" count={stats.transit.water} group="In transit" onPick={pick('water')} />
+        <Stat label="On rail" count={stats.transit.rail} group="In transit" onPick={pick('rail')} />
+        <Stat
+          label={`Arriving ${SOON_DAYS}d`}
+          count={stats.transit.arrivingSoon}
+          group="In transit"
+          onPick={pick('arrivingSoon')}
+        />
+        {/* Shown even at zero. "4 arriving soon" with the late ones quietly dropped would read as a
+            clean pipeline; the whole point of the row is that it is sometimes not. */}
+        <Stat label="Overdue" count={stats.transit.overdue} group="In transit" onPick={pick('overdue')} />
+      </Group>
+
+      <Group title="At rest" count={stats.atRest.total}>
+        <Stat label="Aging" count={stats.atRest.red} tone="red" group="At rest" onPick={pick('red')} />
+        <Stat label="At yard" count={stats.atRest.blue} tone="blue" group="At rest" onPick={pick('blue')} />
+        <Stat label="Booked" count={stats.atRest.green} tone="green" group="At rest" onPick={pick('green')} />
+      </Group>
+
+      <Group title="Attention">
+        <Stat
+          label="Past free day"
+          count={stats.attention.pastFreeDay}
+          group="Attention"
+          onPick={pick('pastFreeDay')}
+        />
+      </Group>
+
+      <p className="placeholder">Click a number to see those containers, or a marker on the map.</p>
+    </section>
   )
 }
 
@@ -80,7 +139,11 @@ function FilterBar({ filter, count, onClear }) {
   return (
     <div className="filterbar">
       <div className="filterbar__chip">
-        <span className="filterbar__kind">{KIND_LABELS[filter.kind] ?? 'Search'}</span>
+        {/* A stat filter names its own group ("In transit"), because KIND_LABELS exists to group
+            SEARCH suggestions and a non-search kind does not belong in it. */}
+        <span className="filterbar__kind">
+          {filter.group ?? KIND_LABELS[filter.kind] ?? 'Search'}
+        </span>
         <span className="filterbar__value">{filter.value}</span>
       </div>
       <span className="filterbar__count">
@@ -157,16 +220,7 @@ export default function Sidebar({
       ) : filter && matchedIds ? (
         <Results shipments={shipments} matchedIds={matchedIds} filter={filter} onClear={onClear} />
       ) : (
-        <section className="panel">
-          <h3>Snapshot</h3>
-          <div className="details">
-            <Row label="Total Shipments" value={stats.total} />
-            <Row label="On Water" value={stats.onWater} />
-            <Row label="Arrived" value={stats.arrived} />
-            <Row label="Past Free Day" value={stats.pastFreeDay} />
-          </div>
-          <p className="placeholder">Click a vessel or a port to see the containers it holds…</p>
-        </section>
+        <Snapshot stats={stats} onCommit={onCommit} />
       )}
     </aside>
   )

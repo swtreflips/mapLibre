@@ -110,13 +110,13 @@ const inboundShipments = [
     mbl: 'WHLC035GX16983',
     port_of_loading: 'Bangkok, Thailand',
     port_of_discharge: 'Los Angeles, CA',
-    Lastcy: 'Cincinnati, OH',
-    sea_route: 'Bangkok, Thailand - New York, NY',
-    rail_route: 'Los Angeles, CA - Cincinnati, OH',
+    Lastcy: 'Denver, CO',
+    sea_route: 'Bangkok, Thailand - Los Angeles, CA',
+    rail_route: 'Los Angeles, CA - Denver, CO',
     actual_shipping: '2026-07-01',
     expected_portdate: '2026-08-29',
-    actual_portdate: '2026-08-29',
-    expected_lastcy_date: '2026-09-10', // TEST: red container at New York (> 3 days at CY, no appointment)
+    actual_portdate: '2026-08-20',
+    expected_lastcy_date: '2026-09-01', // TEST: red container at New York (> 3 days at CY, no appointment)
     appointment_date: '',
     arrival_notice: 'no',
     last_freeday: '',

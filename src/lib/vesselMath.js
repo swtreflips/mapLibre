@@ -154,6 +154,15 @@ export const currentFacility = (s, today = new Date()) =>
 export const arrivedAtFacility = (s) =>
   isIntermodal(s) ? parseYMD(s.expected_lastcy_date) : parseYMD(s.actual_portdate)
 
+// The date a box reaches its LAST CY — the end of its whole journey, not the end of a leg.
+//
+// It is not one column. For a container delivered at the port it landed at, the port date IS the CY
+// date; only an intermodal one has a separate inland date. Reusing isIntermodal means the port
+// complex exception comes free: an LA -> Long Beach transfer is not intermodal, so it correctly
+// uses the port date rather than a Long Beach lastcy date.
+export const finalYardEta = (s) =>
+  isIntermodal(s) ? parseYMD(s.expected_lastcy_date) : parseYMD(s.expected_portdate)
+
 // Whole days a container has been sitting at the yard it is currently in, or null if it has not
 // landed there yet.
 export function daysAtCY(s, today = new Date()) {

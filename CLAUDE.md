@@ -554,13 +554,38 @@ the data held exactly 1 — grouping is what made it honest.
   heavier is synthesised — the browser smears the 400 glyph, which at 9px reads as a malformed
   letter (capital S worst). Add size or tracking for emphasis, not weight.
 
-### Snapshot stats (`computeStats`) — counts over all shipments
+### The Snapshot — [src/lib/stats.js](src/lib/stats.js)
 
-- **Total** = number of shipments.
-- **On Water** = `actual_shipping` and `expected_portdate` set, `actual_portdate` empty,
-  and `actual_shipping ≤ today ≤ expected_portdate`.
-- **Arrived** = `actual_portdate` is set.
-- **Past Free Day** = `last_freeday` set and `last_freeday < today`.
+What the sidebar shows when nothing is selected: the whole fleet in numbers, each one a way into
+the containers behind it.
+
+| group | rows |
+|---|---|
+| **In transit** | On water · On rail · Arriving ≤7d · Overdue |
+| **At rest** | Aging (red) · At yard (blue) · Booked (green) |
+| **Attention** | Past free day |
+
+**Every classification comes from `shipmentState` / `containerStatus`.** `computeStats` used to
+live inside Sidebar.jsx with its own date arithmetic, and the two drifted: the panel reported
+**8 arrived** while the map drew **7 at rest and 1 on rail**, because "has an `actual_portdate`"
+counts a container riding a train as sitting in a yard it never reached. One state machine, or two
+views of one fleet give two answers.
+
+- **Arriving ≤7d / Overdue** use `finalYardEta(s)` — `expected_lastcy_date` for an intermodal box,
+  `expected_portdate` otherwise, since for a port-delivered container the port date *is* the CY
+  date. Built on `isIntermodal`, so the port-complex exception (§7) applies for free.
+- **Overdue is shown even at zero.** "4 arriving soon" with the late ones quietly dropped would
+  read as a clean pipeline; the row exists because sometimes it is not.
+- **No per-port breakdown, deliberately.** The map is the per-port view — that is what the
+  container cards are — and a table here would push the numbers only this panel can give below the
+  fold.
+
+**Every live count is a filter.** Clicking one fills the Results list and dims the map to match,
+through the same `matchedIds` a search uses. `computeStats` returns the **id Set behind each
+count**, so a click carries its own answer (`filter.ids`) rather than resolving through the search
+index — recomputing "which containers are aging" at click time would be a third copy of a rule that
+has already drifted once. A count of **zero is not a button**: nothing is behind it, and a filter
+yielding an empty list reads as a bug rather than an empty set.
 
 ### Map interaction ([MapView.jsx](src/components/MapView.jsx))
 

@@ -27,7 +27,12 @@ function App() {
   // MEMOIZED, and that is load-bearing rather than an optimisation. This Set is a dependency of
   // MapView's rebuild effect, which compares by identity — rebuilt inline it would tear down and
   // re-register the map's zoomend/rotateend listeners and redraw the world on every render.
-  const matchedIds = useMemo(() => matchIds(index, filter), [index, filter])
+  //
+  // A filter arrives one of two ways. A SEARCH names a value and the index resolves it. A SNAPSHOT
+  // STAT already knows its answer — computeStats built the Set while counting — so it carries the
+  // ids and skips the index entirely. Recomputing "which containers are aging" here would be a
+  // second copy of a rule that already exists in two places too many.
+  const matchedIds = useMemo(() => filter?.ids ?? matchIds(index, filter), [index, filter])
 
   const clearFilter = useCallback(() => {
     setQuery('')

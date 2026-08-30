@@ -246,3 +246,155 @@
   outline: 2px solid rgb(var(--c-signal-400));
   outline-offset: 2px;
 }
+
+/* ── The Snapshot ────────────────────────────────────────────────────────────────────
+   The default state of the panel: the whole fleet in numbers, each one a way into the
+   containers behind it. */
+.panel--snapshot {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.snap__head {
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgb(var(--c-fog-200));
+}
+
+.snap__kicker {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500; /* DM Mono loads 400/500 only — see ContainerCard.css */
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: rgb(var(--c-fog-400, var(--c-fog-500)));
+}
+
+.snap__total {
+  margin: 4px 0 0;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: rgb(var(--c-harbor-950));
+  font-variant-numeric: tabular-nums;
+}
+
+.snap__total span {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgb(var(--c-fog-500));
+}
+
+/* ── Groups ─────────────────────────────────────────────────────────────────────────── */
+
+.statgroup__title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 0 0 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgb(var(--c-fog-400, var(--c-fog-500)));
+}
+
+.statgroup__n {
+  font-variant-numeric: tabular-nums;
+  color: rgb(var(--c-harbor-800));
+}
+
+.statgroup__rows {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── One stat ───────────────────────────────────────────────────────────────────────── */
+
+/* A live count is a <button>, a zero is a <div>. They must line up exactly or the column looks
+   broken, so every box-model property is shared and only the affordances differ. */
+.stat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-lg, 8px);
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: rgb(var(--c-harbor-800));
+}
+
+.stat + .stat {
+  border-top: 1px solid rgb(var(--c-fog-100));
+  border-radius: 0;
+}
+
+.stat__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.stat__n {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: rgb(var(--c-harbor-900));
+}
+
+/* Zero reads as absence rather than as a value worth scanning. */
+.stat:not(.stat--live) .stat__label,
+.stat:not(.stat--live) .stat__n {
+  color: rgb(var(--c-fog-400, var(--c-fog-500)));
+}
+
+.stat--live {
+  cursor: pointer;
+  transition: background var(--motion-fast, 140ms) var(--ease-out-expo, ease);
+}
+
+.stat--live:hover {
+  background: rgb(var(--c-fog-100));
+}
+
+.stat--live:focus-visible {
+  outline: 2px solid rgb(var(--c-signal-400));
+  outline-offset: -2px;
+}
+
+/* The same three tones as the container cards and the map's isometric stacks, so a red here and a
+   red there are the same container. Paired with the word, never standing alone. */
+.stat__dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--stat-tone, rgb(var(--c-fog-300)));
+}
+
+.stat--red {
+  --stat-tone: #c0392b;
+}
+.stat--blue {
+  --stat-tone: #3b7dd8;
+}
+.stat--green {
+  --stat-tone: #3e9a63;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stat--live {
+    transition: none;
+  }
+}
