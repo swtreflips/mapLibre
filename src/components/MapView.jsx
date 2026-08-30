@@ -282,6 +282,7 @@ function buildFeatures(shipments, routesByKey, railByKey, map, portPoints, match
   const { vessels, trains, ports: portHolders } = buildHolders(shipments, routesByKey, portPoints, railByKey)
   const shipFeatures = []
   const railFeatures = []
+  const railPaths = []
   // holder key -> { holder, remaining }. Selection is per HOLDER now, not per shipment: one icon
   // standing for three containers has no single shipment to show, which is exactly why the sidebar
   // became a tray.
@@ -328,7 +329,16 @@ function buildFeatures(shipments, routesByKey, railByKey, map, portPoints, match
     if (!pos) continue
     const next = t.coords[Math.min(cut + 1, t.coords.length - 1)]
     const bearing = computeBearing(pos, next)
-    byId.set(t.key, { holder: t, remaining: [pos, ...t.coords.slice(cut + 1)] })
+    const remaining = [pos, ...t.coords.slice(cut + 1)]
+    // `remaining: null` on purpose. The track ahead is drawn ALWAYS, by its own layer below, so
+    // selection must not also push it into `remaining-route` — clicking a railcar fills the tray
+    // and nothing else. `coordinates` carries the fly-to target that `remaining[0]` used to give.
+    byId.set(t.key, { holder: { ...t, coordinates: pos }, remaining: null })
+    railPaths.push({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: remaining },
+      properties: { holder: t.key, matched: t.containers.some(isMatch) ? 1 : 0 },
+    })
     railFeatures.push({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: pos },
@@ -364,6 +374,7 @@ function buildFeatures(shipments, routesByKey, railByKey, map, portPoints, match
   return {
     shipFC: { type: 'FeatureCollection', features: shipFeatures },
     railFC: { type: 'FeatureCollection', features: railFeatures },
+    railPathFC: { type: 'FeatureCollection', features: railPaths },
     ports,
     byId,
   }
@@ -588,6 +599,29 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
         paint: {
           'line-color': palette.route,
           'line-width': ['interpolate', ['linear'], ['zoom'], 5, 2, 12, 4],
+        },
+      })
+
+      // THE TRACK AHEAD. Always drawn, for every container currently on rail — not a selection
+      // highlight. That is why it is quiet: a thin neutral dash rather than the accent
+      // `remaining-route` uses, because the accent means "this is the one you picked" and using it
+      // here would say that about every rail leg at once.
+      //
+      // Only the REMAINING portion. Track already covered is history, and the map is a picture of
+      // where things are now.
+      map.addSource('rail-remaining', { type: 'geojson', data: EMPTY_FC })
+      map.addLayer({
+        id: 'rail-remaining',
+        type: 'line',
+        source: 'rail-remaining',
+        layout: { 'line-cap': 'butt', 'line-join': 'round' },
+        paint: {
+          'line-color': '#5a5a5a',
+          'line-width': 1.4,
+          // Dash units are multiples of LINE WIDTH, not pixels (CLAUDE.md §15), so this changes if
+          // the width does. Butt caps are required or round caps extend each dash and close the gaps.
+          'line-dasharray': [3, 2.5],
+          'line-opacity': ['case', ['==', ['get', 'matched'], 1], 0.65, DIM_OPACITY * 0.65],
         },
       })
 
@@ -830,7 +864,7 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
     if (!mapReady || !map || !routesByKey) return
 
     const rebuild = () => {
-      const { shipFC, railFC, ports, byId } = buildFeatures(
+      const { shipFC, railFC, railPathFC, ports, byId } = buildFeatures(
         shipments,
         routesByKey,
         railByKey,
@@ -843,6 +877,7 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
       cardModeRef.current = cardMode(map.getZoom())
       map.getSource('vessels')?.setData(shipFC)
       map.getSource('rail-movers')?.setData(railFC)
+      map.getSource('rail-remaining')?.setData(railPathFC)
       syncPortCards(map, ports, cardsRef.current, (key) => selectHolderRef.current?.(key))
 
       // Keep the dashed line in sync if the selected ship still exists (containers have none).

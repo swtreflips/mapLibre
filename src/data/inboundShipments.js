@@ -115,7 +115,7 @@ const inboundShipments = [
     rail_route: 'New York, NY - Cincinnati, OH',
     actual_shipping: '2026-07-01',
     expected_portdate: '2026-08-29',
-    actual_portdate: '2026-08-29',
+    actual_portdate: '2026-08-28',
     expected_lastcy_date: '2026-09-10', // TEST: red container at New York (> 3 days at CY, no appointment)
     appointment_date: '',
     arrival_notice: 'no',

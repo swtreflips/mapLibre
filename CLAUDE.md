@@ -514,6 +514,12 @@ the data held exactly 1 — grouping is what made it honest.
 - **One selection at a time**, click to **toggle**; clicking empty water deselects. Selecting
   **flies to** the holder (`flyTo`, `zoom = max(current, SELECT_ZOOM)` — only zooms in).
 - **En-route vessels:** selecting draws the dashed **remaining-route** line (position → POD).
+- **Rail movers draw their track ahead ALWAYS**, from the `rail-remaining` layer — every container
+  on rail, not just a selected one, and only the portion still to travel. So it is styled quiet: a
+  thin neutral dash, not the accent `remaining-route` uses, because that accent means "this is the
+  one you picked" and using it here would say that about every rail leg at once. Selecting a
+  railcar therefore fills the tray and does nothing to the map — its holder carries
+  `remaining: null` so the selection line stays empty.
 - **Ports:** selecting fills the tray and flies to; no dashed line.
 - **Close ports are de-cluttered in pixel space** — `relaxOverlaps` in
   [declutter.js](src/map/declutter.js) pushes overlapping markers apart along the line between
