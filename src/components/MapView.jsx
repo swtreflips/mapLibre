@@ -947,17 +947,23 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
         // One ship name drawn in more than one place. Containers group by vessel + ETD + ETA
         // (holders.js), so a name appearing twice means two sailings — which is often simply true,
         // and is worth naming either way because the map is showing the same ship twice.
-        // A voyage carrying containers booked on two different lanes. Only one polyline can
-        // position the icon, so the others are drawn on a route they are not on — the single
-        // silent wrong answer vessel + ETD + ETA can produce. Louder than the split log below,
-        // because a split is usually just true whereas this is always a data fault.
+        // A group whose containers name more than one lane. Both keys pin the ENDPOINTS
+        // (holders.js), so the group already agrees on its ports — but `route` / `rail_route`
+        // are separate derived fields, and they are what the polyline is looked up by. A route
+        // contradicting its own endpoints puts the marker on a line its containers are not on.
+        // Louder than the split log below, because a split is usually just true whereas this is
+        // always a data fault. Covers rail as well as sea: the two share the failure exactly.
         for (const h of [...byId.values()].map((e) => e.holder)) {
-          if (h.kind === "vessel" && h.lanes?.length > 1) {
+          if ((h.kind === 'vessel' || h.kind === 'rail') && h.lanes?.length > 1) {
+            const c = h.containers[0]
+            const span =
+              h.kind === 'rail'
+                ? `${c.actual_portdate}->${c.expected_lastcy_date}`
+                : `${c.actual_shipping}->${c.expected_portdate}`
             console.warn(
-              `[MapView] ${h.name} (${h.containers[0].actual_shipping}->` +
-                `${h.containers[0].expected_portdate}) mixes ${h.lanes.length} lanes ` +
-                `(${h.lanes.join(" | ")}); all ${h.containers.length} containers are drawn on ` +
-                `${h.subtitle}.`,
+              `[MapView] ${h.kind} ${h.name} (${span}) mixes ${h.lanes.length} lanes ` +
+                `(${h.lanes.join(' | ')}); all ${h.containers.length} containers are drawn on ` +
+                `${h.kind === 'rail' ? h.name : h.subtitle}.`,
             )
           }
         }

@@ -1,20 +1,24 @@
-// Regression test for the VOYAGE grouping rule in src/lib/holders.js.
+// Regression test for the two GROUPING rules in src/lib/holders.js.
 //
 //   npm run test:grouping
 //
-// WHY THIS EXISTS. Containers group into one vessel holder only when FIVE fields agree: vessel,
-// ETD, ETA, port of loading, port of discharge. The live fixture contains exactly one multi-container
-// voyage, so running the app demonstrates that five-way match succeeding and none of the ways it is
-// supposed to fail.
+// WHY THIS EXISTS. Containers share a marker only on an exact multi-field match:
 //
-// AND THE FAILURES ARE THE POINT. Every one of them is silent. Group two containers that are not on
-// the same hull and you get a confident badge reading "2" over a ship drawn at a position that is
-// right for one of them; split two that are, and the same vessel appears twice. Neither throws,
-// neither looks wrong on screen, and both are wrong.
+//   vessel  vessel + ETD + ETA + port of loading + port of discharge
+//   rail            POD + Lastcy + actual_portdate + expected_lastcy_date
 //
-// The grouping was fabricated once already — keyed on vessel + route, so a shared LANE was enough to
-// assert a shared hull, and three containers with ETAs a month apart rendered as one voyage purely
-// to give the count badge a number bigger than 1.
+// The live fixture holds exactly ONE multi-container voyage and ONE single-container rail leg, so
+// running the app demonstrates the vessel match succeeding and essentially nothing else — not one
+// of the ways either rule has to fail, and not the rail rule at all.
+//
+// AND THE FAILURES ARE THE POINT, because every one of them is silent. Group two containers that
+// are not on the same hull and you get a confident badge reading "2" over a marker drawn at a
+// position that is right for only one of them. Split two that are, and the same ship appears twice.
+// Neither throws, neither looks wrong on screen, and both are wrong.
+//
+// This was fabricated once already: keyed on vessel + route, a shared LANE was enough to assert a
+// shared hull, and three containers with ETAs a month apart rendered as one voyage purely to give
+// the count badge a number bigger than 1.
 
 import { readFileSync } from 'fs'
 import { pathToFileURL } from 'url'
@@ -64,7 +68,16 @@ const base = {
   items: [],
 }
 const ship = (over) => ({ ...base, ...over })
-const holders = (rows) => buildHolders(rows, routes, new Map(), new Map()).vessels
+// Rail lanes, keyed the way railByKey is.
+const rails = new Map([
+  [normalizeKey('Los Angeles, CA - Denver, CO'), [[-118, 33], [-105, 39]]],
+  [normalizeKey('Long Beach, CA - Denver, CO'), [[-118.2, 33.7], [-105, 39]]],
+  [normalizeKey('Los Angeles, CA - Chicago, IL'), [[-118, 33], [-87, 41]]],
+  [normalizeKey('New York, NY - Denver, CO'), [[-74, 40], [-105, 39]]],
+])
+
+const holders = (rows) => buildHolders(rows, routes, new Map(), rails).vessels
+const trains = (rows) => buildHolders(rows, routes, new Map(), rails).trains
 
 // ── One field at a time. Each row differs from the first in exactly ONE way. ───────────
 const CASES = [
@@ -149,6 +162,95 @@ check(
   vesselSplits(holders([ship({ shipment: 'A' }), ship({ shipment: 'B', vessel: 'OTHER' })])).length,
   0,
 )
+
+// ── The inland leg ─────────────────────────────────────────────────────────────────────
+//
+// Same shape as the voyage, one leg lower: POD + Lastcy + actual_portdate +
+// expected_lastcy_date. Four fields rather than five because a train has no name here — the two
+// facilities are the endpoints of the lane exactly as POL and POD are of the sea lane.
+//
+// A rail shipment must be INTERMODAL to exist at all (POD and Lastcy differ on canonical keys),
+// and must have sailed and landed, so these rows carry an actual_portdate and a future
+// expected_lastcy_date.
+console.log('\nrail grouping — POD + Lastcy + both dates\n')
+
+const railBase = {
+  vessel: 'TEST SHIP',
+  actual_shipping: '2026-06-01',
+  expected_portdate: '2026-08-01',
+  port_of_loading: 'Bangkok, Thailand',
+  port_of_discharge: 'Los Angeles, CA',
+  Lastcy: 'Denver, CO',
+  sea_route: 'Bangkok, Thailand - Los Angeles, CA',
+  rail_route: 'Los Angeles, CA - Denver, CO',
+  actual_portdate: '2026-08-01',
+  expected_lastcy_date: '2099-01-01', // far future, so the state stays `rail`
+  appointment_date: '',
+  arrival_notice: 'no',
+  last_freeday: '',
+  items: [],
+}
+const box = (over) => ({ ...railBase, ...over })
+
+const RAIL_CASES = [
+  ['identical in all four -> ONE train', [box({ shipment: 'A' }), box({ shipment: 'B' })], 1],
+
+  ['different PORT OF DISCHARGE -> two', [
+    box({ shipment: 'A' }),
+    box({ shipment: 'B', port_of_discharge: 'New York, NY',
+          rail_route: 'New York, NY - Denver, CO' })], 2],
+  ['different LASTCY -> two', [
+    box({ shipment: 'A' }),
+    box({ shipment: 'B', Lastcy: 'Chicago, IL',
+          rail_route: 'Los Angeles, CA - Chicago, IL' })], 2],
+  ['different ACTUAL PORT DATE -> two', [
+    box({ shipment: 'A' }), box({ shipment: 'B', actual_portdate: '2026-08-02' })], 2],
+  ['different EXPECTED LASTCY DATE -> two', [
+    box({ shipment: 'A' }), box({ shipment: 'B', expected_lastcy_date: '2099-02-02' })], 2],
+
+  // Left the port on different days: genuinely at different points on the track, so drawing
+  // them as one marker would put half the containers hundreds of miles from where they are.
+  ['same lane, different departure days -> two markers', [
+    box({ shipment: 'A', actual_portdate: '2026-08-01' }),
+    box({ shipment: 'B', actual_portdate: '2026-08-05' })], 2],
+
+  // LA and Long Beach are one gateway for CARDS, two different tracks here.
+  ['Los Angeles vs Long Beach origin -> two, NOT folded', [
+    box({ shipment: 'A' }),
+    box({ shipment: 'B', port_of_discharge: 'Long Beach, CA',
+          rail_route: 'Long Beach, CA - Denver, CO' })], 2],
+
+  ['same facilities, different SPELLING -> still ONE', [
+    box({ shipment: 'A' }),
+    box({ shipment: 'B', port_of_discharge: 'LOS ANGELES,  CA', Lastcy: 'denver, co' })], 1],
+
+  // Two unknowns are not the same unknown. A rail box with no CY date is still `rail`
+  // (shipmentState), so this path is reachable.
+  ['blank EXPECTED LASTCY DATE -> each alone', [
+    box({ shipment: 'A', expected_lastcy_date: '' }),
+    box({ shipment: 'B', expected_lastcy_date: '' })], 2],
+
+  ['three boxes, one train', [
+    box({ shipment: 'A' }), box({ shipment: 'B' }), box({ shipment: 'C' })], 1],
+]
+
+for (const [name, rows, want] of RAIL_CASES) check(name, trains(rows).length, want)
+
+console.log('\nwhat a grouped train reports\n')
+const train = trains([box({ shipment: 'A' }), box({ shipment: 'B' }), box({ shipment: 'C' })])[0]
+check('holds all three', train.containers.length, 3)
+check('one departure, read off the group', train.etd?.toISOString().slice(0, 10), '2026-08-01')
+check('one CY date, read off the group', train.eta?.toISOString().slice(0, 10), '2099-01-01')
+check('exactly one lane', train.lanes.length, 1)
+
+// The rail equivalent of the sea side's mixed-lane guard: endpoints agree, but the derived
+// rail_route string does not, so the marker would ride a track its own endpoints contradict.
+const mixedRail = trains([
+  box({ shipment: 'A' }),
+  box({ shipment: 'B', rail_route: 'Long Beach, CA - Denver, CO' }),
+])
+check('same endpoints, contradictory rail_route -> ONE train', mixedRail.length, 1)
+check('  ...and it reports BOTH lanes for the warning', mixedRail[0].lanes.length, 2)
 
 // ── The real fixture ───────────────────────────────────────────────────────────────────
 console.log('\nthe live fixture\n')

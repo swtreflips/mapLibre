@@ -475,6 +475,7 @@ Clicking either fills the sidebar with a **tray** — one card per container it 
 | holder | grouped by | anchored at |
 |---|---|---|
 | vessel | `vessel + ETD + ETA + POL + POD` — a **voyage**, not a name (see below) | interpolated position (§5.1) |
+| rail | `POD + Lastcy + actual_portdate + expected_lastcy_date` — a **movement**, not a lane | interpolated along the rail lane (§7) |
 | port | `port_of_discharge` | the port's own coordinate (§5.4) |
 
 **Two-port complexes merge into one card.** `PORT_ALIASES` in [places.js](src/data/places.js) folds
@@ -533,11 +534,35 @@ upstream) and it is what the polyline is actually looked up by. If it disagrees 
 built from, the group is drawn on a lane its own ports contradict. MapView **warns** when `lanes`
 exceeds 1 — louder than the split log, because a split is usually true whereas this is always a fault.
 
-**Guarded by `npm run test:grouping`** ([tools/check-voyage-grouping.mjs](tools/check-voyage-grouping.mjs)).
-The fixture holds exactly one multi-container voyage, so running the app demonstrates the five-way
-match succeeding and none of the ways it must fail — and every failure here is silent. Group two
-containers that are not on one hull and you get a confident badge over a position right for only one
-of them; split two that are, and the ship appears twice. Neither throws, and neither looks wrong.
+**THE INLAND LEG GROUPS THE SAME WAY, ONE LEG LOWER:**
+`port_of_discharge + Lastcy + actual_portdate + expected_lastcy_date`. Four fields rather than five
+because a train has no name in this data — the two facilities are the endpoints of the rail lane
+exactly as POL and POD are of the sea lane, so they do the work `vessel` cannot. It replaced
+`rail_route + both dates`, which keyed on the derived lane string rather than the facilities it is
+assembled from: the same fault the sea side had.
+
+The dates matter as much here as at sea, and for a sharper reason: boxes that left the port on
+different days are at genuinely different points on the track, so merging them would draw half the
+containers hundreds of miles from where they are.
+
+`normalizeKey`, not `facilityKey`, for the reason above — with one extra guard worth knowing:
+`isIntermodal` has *already* compared these two through `facilityKey` to decide the leg is rail at
+all, so a move inside one port complex never reaches the key (§7). What is left are genuine inland
+legs, where `Los Angeles → Denver` and `Long Beach → Denver` are two different tracks.
+
+**Both holder kinds carry `lanes`, and MapView warns on either.** The failure is identical on both:
+the group agrees on its endpoints by construction, but `route` / `rail_route` are *separate, derived*
+fields and are what the polyline is looked up by, so one contradicting its own endpoints puts the
+marker on a line its containers are not on.
+
+**Guarded by `npm run test:grouping`** ([tools/check-voyage-grouping.mjs](tools/check-voyage-grouping.mjs)),
+46 checks over both rules — each field varied one at a time, every blank fallback, the LA/Long Beach
+non-folding, spelling drift, and the live fixture. The fixture holds exactly one multi-container
+voyage and one single-container rail leg, so running the app demonstrates the vessel match succeeding
+and almost nothing else — not one of the ways either rule must fail, and not the rail rule at all.
+Every one of those failures is silent: group two containers that are not on one hull and you get a
+confident badge over a position right for only one of them; split two that are, and the marker
+appears twice. Neither throws, and neither looks wrong.
 
 **One feature per holder**, so a vessel carrying three containers is one icon whose badge reads 3.
 That badge was a hardcoded `MOCK_CONTAINER_COUNT = 7` for several iterations while every vessel in

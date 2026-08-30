@@ -64,6 +64,27 @@ const voyageKey = (s) => {
   return `${normalizeKey(vessel)}|${etd}|${eta}|${normalizeKey(pol)}|${normalizeKey(pod)}`
 }
 
+// THE INLAND LEG a container is on: one origin, one destination, one departure, one arrival.
+// The same shape as voyageKey one leg lower, and for the same reasons — the ports pin the lane
+// so the group can only be drawn on a track its containers are actually on, and the dates pin
+// the movement so boxes that left the port on different days are not merged into one marker
+// several hundred miles from half of them.
+//
+// FOUR FIELDS, NOT FIVE: a train has no name in this data. `port_of_discharge` and `Lastcy` are
+// the endpoints of the rail lane exactly as POL and POD are of the sea lane, so they do the
+// work `vessel` cannot.
+//
+// normalizeKey and NOT facilityKey, for the reason voyageKey gives. There is an extra guard
+// here: isIntermodal already compared these two through facilityKey to decide this is rail at
+// all, so a move INSIDE one port complex never reaches this line (§7). What remains are genuine
+// inland legs, where Los Angeles -> Denver and Long Beach -> Denver are two different tracks.
+const railKey = (s) => {
+  const parts = [s.port_of_discharge, s.Lastcy, s.actual_portdate, s.expected_lastcy_date]
+  if (parts.some((p) => !p || !String(p).trim())) return `solo|${s.shipment}`
+  const [pod, cy, departed, due] = parts
+  return `${normalizeKey(pod)}|${normalizeKey(cy)}|${departed}|${due}`
+}
+
 /**
  * @param {object[]} shipments
  * @param {Map<string, number[][]>} routesByKey  normalized "POL - POD" -> coordinates
@@ -104,12 +125,15 @@ export function buildHolders(shipments, routesByKey, portPoints, railByKey) {
     }
 
     if (state === 'rail') {
-      // KEYED ON LANE + BOTH DATES. The lane alone would merge boxes that left the port on
-      // different days into one marker, and they are genuinely at different points on the track.
-      // Same lane and same dates means the same movement — a train.
+      // KEYED ON POD + LASTCY + BOTH DATES — a MOVEMENT, not a lane. Same endpoints and same
+      // dates means the same train; anything else is a separate marker at its own point on the
+      // track. See railKey.
+      //
+      // This replaced rail_route + both dates, which keyed on the DERIVED lane string rather
+      // than on the two facilities it is assembled from — the same fault the sea side had.
       const coords = railByKey?.get(normalizeKey(s.rail_route))
       if (!coords || coords.length < 2) continue
-      const key = `${normalizeKey(s.rail_route)}|${s.actual_portdate}|${s.expected_lastcy_date}`
+      const key = railKey(s)
       if (!trains.has(key)) {
         trains.set(key, { key, lane: s.rail_route, coords, containers: [] })
       }
@@ -119,20 +143,13 @@ export function buildHolders(shipments, routesByKey, portPoints, railByKey) {
 
     if (state !== 'enroute') continue
 
-    // KEYED ON VESSEL + ETD + ETA — a VOYAGE, not a ship and not a lane.
+    // KEYED ON VESSEL + ETD + ETA + POL + POD — a VOYAGE, not a ship and not a lane. See
+    // voyageKey for why each field is in there.
     //
-    // Containers ride the same hull only if all three match. Same ship on different dates is a
-    // different sailing, and anything that fails to match gets its own holder rather than being
-    // folded in on the strength of the name alone.
-    //
-    // This replaced vessel + route, which grouped on the LANE and so quietly asserted that every
-    // container Cartagena -> New York on a ship called CAUTIN was aboard the same hull, whatever
-    // their dates said. That is how the fixture came to hold a "3 containers" badge over rows whose
-    // ETAs were a month apart — the number was real, the voyage behind it was not.
-    //
-    // The dates are compared as RAW STRINGS, deliberately: they are the same "YYYY-MM-DD" field
-    // from the same feed, so equal voyages give equal keys, and parsing first would only add a way
-    // for two identical strings to disagree.
+    // This replaced vessel + route, which grouped on the DERIVED lane string and so quietly
+    // asserted that every container Cartagena -> New York on a ship called CAUTIN was aboard the
+    // same hull, whatever their dates said. That is how the fixture came to hold a "3 containers"
+    // badge over rows whose ETAs were a month apart — the number was real, the voyage was not.
     const coords = routesByKey?.get(normalizeKey(seaLane(s)))
     if (!coords || coords.length < 2) continue
     const key = voyageKey(s)
@@ -179,10 +196,15 @@ export function buildHolders(shipments, routesByKey, portPoints, railByKey) {
         name: t.lane,
         subtitle: 'Inland rail',
         coords: t.coords,
-        // Every container in this group shares both dates by construction — that is the grouping
-        // key — so the first row's are the group's.
+        // Every container in this group shares both dates by construction — that is half the
+        // grouping key — so the first row's are the group's.
         etd: parseYMD(t.containers[0]?.actual_portdate),
         eta: parseYMD(t.containers[0]?.expected_lastcy_date),
+        // Same guard the vessel holders carry: the group agrees on POD and Lastcy by
+        // construction, but `rail_route` is a separate derived field and is what the track
+        // polyline is looked up by. A route contradicting its own endpoints draws the train on
+        // the wrong line.
+        lanes: [...new Set(t.containers.map((c) => c.rail_route).filter(Boolean))],
         containers: t.containers,
       }
     }),
