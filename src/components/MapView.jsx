@@ -45,16 +45,21 @@ const VESSEL_SCALE_STOPS = [
   // is unchanged to the last decimal. Only 1.6 -> 2.2 moves.
   [1.6, 0.48],
   [2.2, 0.62],
-  [6, 1.0],
-  // The curve PEAKS at 8.67 and comes back down. Unusual for a marker, and deliberate: past this
-  // zoom the map is showing a terminal rather than a coastline, so the icon stops being a locator
-  // and starts being an obstruction — 46 px of ship laid over the berth it is supposed to point at.
+  // ONE LONG, NEARLY FLAT SEGMENT from 5.4 to 11.2, replacing the old climb to 1.4.
   //
-  // 1.267 is exactly what the old 6 -> 10 line evaluated to at 8.67, so everything below the band
-  // is unchanged to the last decimal; only 8.67 -> 11.2 moves. Above 11.2 it holds at 1.0, which is
-  // the same 33 px the artwork is baked at, so at street zoom the sprite is drawn 1:1 and never
-  // resampled up.
-  [8.67, 1.267],
+  // Past ~z5 the map is showing a coastline, then a port, then a terminal, and a marker that keeps
+  // growing through all of that stops being a locator and becomes an obstruction — the old curve
+  // reached 46 px, enough ship to cover the berth it is meant to point at. Holding near 1.0 instead
+  // means the icon marks a place while the map does the describing.
+  //
+  // Spread over the whole range rather than a short band at the top. A narrow one made the size
+  // change abruptly and, worse, made the curve PEAK and come back down — a marker that shrinks as
+  // you zoom in. Across 5.8 zooms it simply rises gently and never reverses.
+  //
+  // 0.94 is exactly what the 2.2 -> 6 line evaluated to at 5.4, so everything below the band is
+  // unchanged to the last decimal. It settles at 1.0 — the 33 px the artwork is actually baked at,
+  // so at street zoom the sprite draws 1:1 and is never resampled up.
+  [5.4, 0.94],
   [11.2, 1.0],
 ]
 

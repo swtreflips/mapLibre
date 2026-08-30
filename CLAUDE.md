@@ -332,11 +332,18 @@ a very different size — don't just change `icon-size`.
 
   Both report **~33 CSS px logical width**, so one `icon-size` expression drives both and the
   switch changes outline *weight*, never size. `icon-size` stops
-  (**1.6→0.48**, 2.2→0.62, 6→1.0, **8.67→1.267, 11.2→1.0**), shared by the vessel and rail layers.
+  (**1.6→0.48**, 2.2→0.62, **5.4→0.94, 11.2→1.0**), shared by the vessel and rail layers.
 
-  **The curve peaks at 8.67 and comes back down**, which is unusual for a marker and deliberate:
-  past that zoom the map shows a terminal rather than a coastline, so the icon stops being a
-  locator and becomes an obstruction — 46 px of ship laid over the berth it is meant to point at.
+  **One long, nearly flat segment from 5.4 to 11.2**, replacing a climb to 1.4. Past ~z5 the map
+  shows a coastline, then a port, then a terminal, and a marker that keeps growing through all of
+  that stops being a locator and becomes an obstruction — the old curve reached 46 px, enough ship
+  to cover the berth it points at. Holding near 1.0 lets the icon mark a place while the map
+  describes it.
+
+  **Spread wide on purpose.** A short band at the top was tried and reverted: it made the size
+  change abruptly and, worse, made the curve *peak and come back down* — a marker that shrinks as
+  you zoom in. Over 5.8 zooms it simply rises and never reverses.
+
   It settles at 1.0, which is the **33 px the artwork is baked at**, so at street zoom the sprite
   draws 1:1 and is never resampled up.
 
@@ -344,7 +351,7 @@ a very different size — don't just change `icon-size`.
   the fully-zoomed-out view was the same size as one at z2 — and down there it floats on an ocean
   with nothing to be read against, competing with the port bubbles rather than adding to them.
   **Both band edges are deliberate rejoins, not round numbers.** 0.62 is exactly what the old 2→6
-  line evaluated to at 2.2, and 1.267 is exactly what the 6→10 line evaluated to at 8.67 — so each
+  line evaluated to at 2.2, and 0.94 is exactly what the 2.2→6 line evaluated to at 5.4 — so each
   retune left everything outside its own band unchanged to the last decimal.
 - **Containers** are no longer sprites — each port draws one isometric SVG card (§5.4, CARDS.md).
 

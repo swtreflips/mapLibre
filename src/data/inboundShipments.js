@@ -89,7 +89,7 @@ const inboundShipments = [
     Lastcy: 'New York, NY',
     route: 'Bangkok, Thailand - New York, NY',
     actual_shipping: '2026-03-24',
-    expected_portdate: '2026-06-18',
+    expected_portdate: '2026-08-30',
     actual_portdate: '',
     appointment_date: '',
     arrival_notice: 'no',
