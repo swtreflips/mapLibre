@@ -176,7 +176,16 @@ export default function SearchBox({ index, query, filter, onQueryChange, onCommi
                       onMouseEnter={() => setActive(i)}
                       onClick={() => commit(entry)}
                     >
-                      <span className="sbox__value">{entry.value}</span>
+                      {/* A note is prose, not an identifier: sans rather than mono, and clamped
+                          so a long one cannot stretch the dropdown. Everything else is a reference
+                          number, where the mono column is what makes them scannable. */}
+                      <span
+                        className={
+                          entry.kind === 'note' ? 'sbox__value sbox__value--note' : 'sbox__value'
+                        }
+                      >
+                        {entry.value}
+                      </span>
                       <span className="sbox__count">{n}</span>
                     </li>
                   )

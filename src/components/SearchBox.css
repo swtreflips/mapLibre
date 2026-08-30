@@ -175,3 +175,17 @@
     transition: none;
   }
 }
+
+/* A note suggestion is a SENTENCE, not a reference number. Mono at 12px is what makes a column of
+   identifiers scannable; the same treatment on prose reads as code and wastes the width. Clamped to
+   two lines so one long note cannot stretch the dropdown past the rest. */
+.sbox__value--note {
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: rgb(var(--c-harbor-800));
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

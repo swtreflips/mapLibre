@@ -51,6 +51,7 @@ function writeAll(all) {
 //
 // It doubles as the obvious win: no JSON.parse on every keystroke in the composer.
 let store = null
+let revision = 0
 const snapshots = new Map()
 const EMPTY = Object.freeze([])
 
@@ -72,8 +73,25 @@ export function subscribe(fn) {
 function commit() {
   writeAll(store)
   snapshots.clear() // identities must change for useSyncExternalStore to see the write
+  revision += 1
   for (const fn of listeners) fn()
 }
+
+/**
+ * A number that changes on every write. For consumers that need to REBUILD something when notes
+ * change rather than re-read a list — the search index, which is derived from notes plus static
+ * shipment data and so cannot just take a snapshot of either.
+ *
+ * A counter rather than the store itself, because useSyncExternalStore compares snapshots by
+ * identity and `allNotes()` hands back a live object that mutates in place.
+ */
+export const notesRevision = () => revision
+
+/**
+ * Every note, keyed by shipment. Exposed for the search index, which needs all of them at once.
+ * The returned object is the LIVE store — read it, do not mutate it.
+ */
+export const allNotes = () => load()
 
 const newId = () =>
   // crypto.randomUUID is unavailable on plain-http origins in some browsers; this is an id for a

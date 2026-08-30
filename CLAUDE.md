@@ -511,6 +511,20 @@ the data held exactly 1 — grouping is what made it honest.
   exist yet. The record already carries §14's field names, so adding the enum later touches no
   stored data.
 
+  **Notes are searchable** ([search.js](src/lib/search.js), kind `note`). Two things make prose
+  behave unlike the identifier kinds beside it:
+
+  - **The whole note is one index entry, not its words.** Tokenising would index `door` and
+    `broken` separately and then be unable to answer `"container door"` — the phrase someone would
+    actually type. Matching the raw text handles single words and phrases with one rule.
+  - **Notes only match at a WORD BOUNDARY** (`wordish` on the entry). Identifiers match anywhere,
+    because the middle of a reference number is a normal thing to half-remember; prose cannot use
+    that rule, or `"on"` hits *container* and *broken* and buries the real results.
+
+  The index is rebuilt from `notesRevision()` rather than only from shipments, so a note is
+  findable the moment it is saved rather than after a reload. `search.js` stays pure — notes are
+  passed in, never imported.
+
   **Storage is localStorage, deliberately** — `notes.js` is shaped like the Supabase table it
   becomes, so the swap is one file. There is no auth (§13) and the anon key ships in a public
   bundle from a public repo; granting anon `insert` would open a public write path into the

@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
 import MapView from './components/MapView'
 import Sidebar from './components/Sidebar'
 import inboundShipments from './data/inboundShipments'
 import { buildSearchIndex, matchIds } from './lib/search'
+import { subscribe, notesRevision, allNotes } from './lib/notes'
 import './App.css'
 
 function App() {
@@ -13,7 +14,15 @@ function App() {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState(null)
 
-  const index = useMemo(() => buildSearchIndex(inboundShipments), [])
+  // The index is derived from two sources with different lifetimes: shipments, which are static,
+  // and notes, which a user writes at runtime. Subscribing to the notes revision is what makes a
+  // note searchable the moment it is saved rather than on the next reload.
+  const notesRev = useSyncExternalStore(subscribe, notesRevision, notesRevision)
+  const index = useMemo(
+    () => buildSearchIndex(inboundShipments, allNotes()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- allNotes() is read through notesRev
+    [notesRev],
+  )
 
   // MEMOIZED, and that is load-bearing rather than an optimisation. This Set is a dependency of
   // MapView's rebuild effect, which compares by identity — rebuilt inline it would tear down and
