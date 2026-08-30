@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { computeStats, SOON_DAYS } from '../lib/stats'
-import { voyagePhase, formatDay } from '../lib/vesselMath'
+import { voyagePhase, formatDay, sortByPriority } from '../lib/vesselMath'
 import { KIND_LABELS } from '../lib/search'
 import BrandMark from './BrandMark'
 import ContainerCard from './ContainerCard'
@@ -112,6 +112,17 @@ const HOLDER_KIND = { vessel: 'Vessel', rail: 'Rail', port: 'Port' }
 
 function Tray({ holder, matchedIds }) {
   const n = holder.containers.length
+  // PORTS ONLY. A port tray is a worklist — red first, longest-sitting first — because
+  // everything in it has stopped and the question is what to clear next. A vessel or train
+  // tray is a manifest of things all in the same situation, so it keeps the id order the
+  // holder arrives in and stays comparable between refreshes (holders.js).
+  //
+  // Sorted HERE rather than in holders.js deliberately: the holder object is shared with the
+  // map, whose card reads the same array, and this is a question about one panel.
+  const rows = useMemo(
+    () => (holder.kind === 'port' ? sortByPriority(holder.containers) : holder.containers),
+    [holder],
+  )
   // Null for a PORT holder, which has no voyage — a facility is where boxes stop, not something
   // travelling between two dates. Also null for any voyage missing one of its dates, rather than
   // rendering a confident sentence built on a blank.
@@ -145,7 +156,7 @@ function Tray({ holder, matchedIds }) {
             because "what is on this ship" is the question a click asks and a partial answer to it
             would be a lie. The matches are ringed instead — which is also what the map is doing
             one arm over, so the two views agree. */}
-        {holder.containers.map((c) => (
+        {rows.map((c) => (
           <ContainerCard key={c.shipment} shipment={c} matched={matchedIds?.has(c.shipment)} />
         ))}
       </div>

@@ -576,6 +576,33 @@ the data held exactly 1 — grouping is what made it honest.
   Cards show container no + status chip, shipment/vessel, route, dates, free day and appointment,
   with an items summary; clicking one **expands it in place** for carrier, forwarder, HBL/MBL and
   the item lines.
+- **A PORT tray is ordered by PRIORITY; a vessel or rail tray is not.** `sortByPriority()` in
+  [vesselMath.js](src/lib/vesselMath.js) puts **red first, then blue, then green**, and within each
+  colour the **longest-dwelling box first**.
+
+  The distinction is what the tray is *for*. A vessel tray is a **manifest** — everything in it is
+  at sea, in the same situation, so the id order it arrives in is as good as any and stays
+  comparable between refreshes. A port tray is a **worklist**: everything has stopped, and the only
+  question is which box to clear next. Red is aging past its free time and may already be accruing
+  demurrage, blue is sitting but not late, green has an appointment and is handled for now — and
+  the longest-sitting box in a band is both the most expensive and the likeliest to be forgotten.
+
+  **Sorted in the tray, NOT in holders.js.** The holder object is shared with the map, whose port
+  card reads the same `containers` array; ordering it there would reach past the panel that asked.
+  `sortByPriority` returns a **new array** for the same reason.
+
+  **Tones come from `containerStatus`, never a rule written at the call site** — the same function
+  the chip and the map card use, so the row at the top of the list is red in all three places. And
+  dwell comes from `daysAtCY`, which measures from the facility the box is **actually in**: an
+  intermodal container counts from the day it reached its inland yard, not from the day it cleared
+  the seaport months earlier (§7). Sorting on the wrong one puts a box that landed two days ago at
+  the head of the red band.
+
+  Ties fall through to shipment id, which is what keeps rows from swapping places between
+  refreshes. Guarded by `npm run test:order`
+  ([tools/check-tray-order.mjs](tools/check-tray-order.mjs)) — a wrong order is **invisible**: every
+  row still shows the right container, the right chip and the right dwell, so the panel looks
+  entirely correct while burying the box someone should be dealing with.
 - **The header carries a VOYAGE LINE** — `ARRIVING IN 31 DAYS` opposite `ETA 30 Sep` — from
   `voyagePhase(etd, eta, today)` in [vesselMath.js](src/lib/vesselMath.js). It answers the question
   the header otherwise left to whoever was reading it: *how soon, or how long ago*. Under 50%

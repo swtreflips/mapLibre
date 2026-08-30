@@ -300,6 +300,51 @@ export function formatDay(d, today = new Date()) {
   return d.getFullYear() === today.getFullYear() ? base : `${base} ${d.getFullYear()}`
 }
 
+// ── The port tray is a WORKLIST, so it is ordered by PRIORITY, not by id ──────────────
+//
+// A vessel tray is a manifest: everything in it is in the same situation, at sea, and the id
+// order it arrives in is as good as any. A PORT tray is not. Everything in it has stopped
+// moving, and the only question worth answering is which box to deal with first.
+//
+// RED, THEN BLUE, THEN GREEN — the order they cost something. Red is aging past its free
+// time and may already be accruing demurrage; blue is sitting but not yet late; green has an
+// appointment booked and is, for now, handled. Within each colour, LONGEST DWELL FIRST: the
+// box that has sat longest is both the most expensive and the most likely to be forgotten.
+//
+// THE TONES COME FROM containerStatus, never from a rule written here. It is the same call
+// the tray chip and the map card make, so a row at the top of this list is red in all three
+// places. A second copy of "which containers are aging" is exactly how the stats panel and
+// the map drifted apart once already (CLAUDE.md §8).
+const TONE_RANK = { red: 0, blue: 1, green: 2 }
+
+/**
+ * @returns {object[]} a NEW array — the caller's is not mutated, because holders are shared
+ *   with the map and re-ordering one in place would reach further than the panel that asked.
+ */
+export function sortByPriority(containers, today = new Date()) {
+  // Decorated rather than compared in place: containerStatus builds a label string on every
+  // call and a comparator runs O(n log n) times. Cheap either way at these counts, but it also
+  // puts both sort keys somewhere you can read them.
+  return (containers ?? [])
+    .map((s) => ({
+      s,
+      rank: TONE_RANK[containerStatus(s, today).tone] ?? 99,
+      // Dwell at the facility the box is ACTUALLY in. arrivedAtFacility handles the inland
+      // case, so a box that cleared its seaport in June counts from the day it reached its
+      // yard, not from June (CLAUDE.md §7).
+      days: daysAtCY(s, today) ?? 0,
+    }))
+    .sort(
+      (a, b) =>
+        a.rank - b.rank ||
+        b.days - a.days ||
+        // Last resort, and it is what keeps the list STABLE: two boxes the same colour that
+        // landed the same day would otherwise be free to swap rows on every refresh.
+        (a.s.shipment < b.s.shipment ? -1 : a.s.shipment > b.s.shipment ? 1 : 0),
+    )
+    .map((d) => d.s)
+}
+
 // Where a container is in its journey (CLAUDE.md §7). Today defaults to now's local midnight.
 //
 //   future    not sailed yet
