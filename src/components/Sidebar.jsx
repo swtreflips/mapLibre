@@ -38,15 +38,20 @@ function Row({ label, value }) {
   )
 }
 
-// THE TRAY. A holder — a vessel or a port — holds 1..N containers, and this is what it is
-// holding. The panel used to show one shipment because the map used to select one shipment; both
-// changed together (CLAUDE.md §8).
+// THE TRAY. A holder — a vessel, a train, or a facility — holds 1..N containers, and this is what
+// it is holding. The panel used to show one shipment because the map used to select one shipment;
+// both changed together (CLAUDE.md §8).
+const HOLDER_KIND = { vessel: 'Vessel', rail: 'Rail', port: 'Port' }
+
 function Tray({ holder, matchedIds }) {
   const n = holder.containers.length
   return (
     <section className="panel panel--tray">
       <header className="tray__head">
-        <p className="tray__kind">{holder.kind === 'vessel' ? 'Vessel' : 'Port'}</p>
+        {/* Three kinds of holder now: a ship, a train, and a facility the containers are sitting
+            in. The facility is not always a seaport — an inland yard holds boxes that finished a
+            rail leg — so holders.js decides that word and this only has to name the kind. */}
+        <p className="tray__kind">{HOLDER_KIND[holder.kind] ?? 'Port'}</p>
         <h3 className="tray__name">{holder.name}</h3>
         <p className="tray__meta">
           {holder.subtitle}

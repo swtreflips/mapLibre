@@ -401,6 +401,30 @@ Decide state from today's local-midnight date:
 The hull is one object holding many containers, so arrival notice is an *any* over the group — the
 per-container breakdown is what the tray is for (§8).
 
+### The inland leg — a fourth state
+
+**`port_of_discharge` vs `Lastcy` is the whole rule.** Equal means the box is delivered at the port
+it landed at and the table above is complete. Different means it has an **inland leg**: it moves by
+rail to an interior yard, and the port is a waypoint.
+
+| state | condition | placement | icon |
+|---|---|---|---|
+| **rail** | `actual_portdate` set, POD ≠ Lastcy, today < `expected_lastcy_date` | interpolated along the `rail_route` lane | railcar |
+| **arrived (inland)** | as above but today ≥ `expected_lastcy_date` | **the Lastcy facility's own coordinate** | container card |
+
+- Progress runs `actual_portdate` → `expected_lastcy_date`, using the same `computeProgress` /
+  `positionAtProgress` the vessel uses. It is the same problem: a thing travelling a polyline
+  between two dates.
+- **Dwell is measured from arrival at the facility the box is actually in** — `arrivedAtFacility()`
+  returns `expected_lastcy_date` for an inland box, `actual_portdate` for a port one. Without that
+  split, a box that cleared its seaport in June arrives at its inland yard already reading
+  `AGING 84D`.
+- **`expected_lastcy_date` is an estimate and there is no `actual_lastcy_date`**, so the box appears
+  at the yard on that date whether or not it truly arrived — the same honest-position caveat as §6.
+- A shipment with an inland leg carries **`sea_route` + `rail_route`** instead of `route`. Read
+  `s.sea_route ?? s.route` for the sea lane: reading only `route` silently drops an intermodal
+  shipment that is still at sea, because the lane lookup misses and the loop skips it.
+
 - days-at-CY = `floor((today - actual_portdate) / 1 day)`.
 - transit days (future popup) = `floor((endDate - startDate) / 1 day)`;
   remaining (en-route popup) = `floor((endDate - today) / 1 day)`.
@@ -521,6 +545,7 @@ isometric SVG card (§5.4).**
 |---|---|---|---|
 | `shipDefault` | `nauticalDefault2.png` | en-route ship, **amber** | `arrival_notice ≠ yes` |
 | `shipGreen` | `nauticalGreen2.png` | en-route ship, **green** | `arrival_notice = yes` |
+| `railcar` / `railcarSm` | `railcar.png`, `railcar-sm.png` | the inland rail leg | `shipmentState = rail` |
 
 - **Ships: edit [assets/vessel.svg](assets/vessel.svg), then `npm run build:icons`.** One polygon
   (bow apex, straight flanks, concave notched stern) drives both variants; the bake swaps two
@@ -541,6 +566,16 @@ isometric SVG card (§5.4).**
   - **`stroke-width: 2` is a floor, not a style.** At `pixelRatio: 2` it lands at 1 CSS px. The
     old 1px stern edge fell below a device pixel once `icon-size` dropped to 0.6 and flickered as
     the icon turned. If it reads thin at the lowest zoom, raise the stroke — don't scale the icon.
+- **Rail: edit [assets/railcar.svg](assets/railcar.svg), then `npm run build:icons`.** The bake now
+  walks an `ARTWORKS` list, so both markers go through the same tiers and the same symmetry
+  assertion — both rotate, so both hit the same half-pixel trap. **One variant only:** the ship's
+  amber/green encodes `arrival_notice`, the inland leg has no equivalent signal, and a second
+  colour would imply a distinction that does not exist. Steel `#9AA6B2` with the vessel's `#086A08`
+  stroke, so the pair reads as one family and the count numeral still belongs to it.
+
+  **The two moving markers are told apart by SILHOUETTE, not colour** — a sharp-bowed dart against
+  a blunt chamfered car — which is the same rule the three route styles follow. Proportion is what
+  makes it read: the first cut was 54×35, nearly square, and looked like a grey tag at map size.
 - `nauticalWhite2.png` is the **obsolete** recolour source from the raster era; the SVG replaced
   it and nothing reads it at runtime.
 - `exemplar.png` is a **MarineTraffic screenshot**, not an icon — 0% transparency, opaque
@@ -623,7 +658,8 @@ expects before feeding the map.
   `confirmed_carrier`, route `key`, `port_of_loading`, `port_of_discharge`, `Lastcy`,
   `actual_shipping` (ETD), `expected_portdate` (latest forwarder ETA — the push overwrites it
   freely; drives map position, §6), `actual_portdate`, `appointment_date`, `arrival_notice`,
-  `last_freeday`, `hbl`, `mbl`, plus a denormalized `search_text` blob, and `first_seen` /
+  `last_freeday`, `hbl`, `mbl`, plus `sea_route` / `rail_route` and `expected_lastcy_date` for the
+  inland leg (§7), a denormalized `search_text` blob, and `first_seen` /
   `last_updated` timestamps. Consider an `active` flag (see ingestion) instead of deleting
   departed shipments.
 - **line_items** — container → many items (one-to-many). Fields: `id`, `container` (FK),

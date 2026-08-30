@@ -87,9 +87,34 @@ const DAY = 86400000
 const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
 const isSet = (v) => Boolean(v && v.trim() !== '')
 
-// Whole days a container has been sitting at the yard, or null if it has not landed.
+// ── Where a container is, and when it got there ───────────────────────────────────────
+//
+// THE COMPARISON IS THE WHOLE RULE. port_of_discharge === Lastcy means the box is delivered at the
+// port it landed at, and the journey ends there. When they differ the box has an INLAND LEG: it
+// moves by rail from the seaport to an interior yard, and the port is a waypoint, not a
+// destination.
+export const isIntermodal = (s) =>
+  normalizeKey(s.port_of_discharge) !== normalizeKey(s.Lastcy) && isSet(s.Lastcy)
+
+// The facility the container is physically at — which is NOT always the discharge port. Once an
+// inland leg is complete the box lives at Lastcy, and a card must be drawn there.
+export const currentFacility = (s, today = new Date()) =>
+  isIntermodal(s) && shipmentState(s, today) === 'arrived' ? s.Lastcy : s.port_of_discharge
+
+// When it reached THAT facility. Dwell has to be measured from arrival at the place it is now,
+// not from actual_portdate: an intermodal box that cleared its seaport months ago would otherwise
+// arrive at its inland yard already reading AGING 84D.
+//
+// The inland date is an ESTIMATE — there is no actual_lastcy_date column — so a box appears at the
+// yard on expected_lastcy_date whether or not it truly arrived. Same honest-position caveat the
+// vessel carries (CLAUDE.md §6).
+export const arrivedAtFacility = (s) =>
+  isIntermodal(s) ? parseYMD(s.expected_lastcy_date) : parseYMD(s.actual_portdate)
+
+// Whole days a container has been sitting at the yard it is currently in, or null if it has not
+// landed there yet.
 export function daysAtCY(s, today = new Date()) {
-  const arrived = parseYMD(s.actual_portdate)
+  const arrived = arrivedAtFacility(s)
   return arrived ? Math.floor((midnight(today) - arrived) / DAY) : null
 }
 
@@ -110,10 +135,27 @@ export function containerColor(s, today = new Date()) {
 // `tone` stays one of red / blue / green so the card geometry and the tray share one vocabulary;
 // en-route containers are not drawn on a card, so they get a tone only for the chip.
 export function containerStatus(s, today = new Date()) {
-  if (shipmentState(s, today) === 'future') {
+  const state = shipmentState(s, today)
+  if (state === 'future') {
     return { tone: 'blue', label: 'NOT SAILED', detail: `ETD ${s.actual_shipping || '—'}` }
   }
-  if (shipmentState(s, today) === 'enroute') {
+  // The inland leg. Its own word because "ON WATER" would be a lie and "AT YARD" would be worse —
+  // the box is between two places and the thing worth knowing is when it lands at the second.
+  if (state === 'rail') {
+    const end = parseYMD(s.expected_lastcy_date)
+    const left = end ? Math.floor((end - midnight(today)) / DAY) : null
+    return {
+      tone: 'blue',
+      label: 'ON RAIL',
+      detail:
+        left == null
+          ? 'no CY date'
+          : left >= 0
+            ? `${left}d to ${s.Lastcy}`
+            : `${-left}d past CY date`,
+    }
+  }
+  if (state === 'enroute') {
     const end = parseYMD(s.expected_portdate)
     const left = end ? Math.floor((end - midnight(today)) / DAY) : null
     return {
@@ -133,12 +175,29 @@ export function containerStatus(s, today = new Date()) {
   return { tone: 'blue', label: days === 0 ? 'LANDED TODAY' : `AT YARD ${days}D`, detail: '' }
 }
 
-// Three-state classification (CLAUDE.md §7). Today defaults to now's local midnight.
+// Where a container is in its journey (CLAUDE.md §7). Today defaults to now's local midnight.
+//
+//   future    not sailed yet
+//   enroute   on a vessel, along the SEA lane
+//   rail      on a train, along the RAIL lane — only ever for an intermodal shipment
+//   arrived   sitting at a facility: the discharge port, or the inland yard if it went on
+//
+// `rail` sits BETWEEN enroute and arrived. A box that has cleared its port but not yet reached its
+// inland yard is not "arrived" in any useful sense — drawing it as a container at the seaport was
+// wrong from the moment it rolled out, which is what this state exists to fix.
 export function shipmentState(s, today = new Date()) {
   const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate())
   const start = parseYMD(s.actual_shipping)
   const arrived = parseYMD(s.actual_portdate)
   if (start && start > todayMid) return 'future'
-  if (arrived && arrived <= todayMid) return 'arrived'
+  if (arrived && arrived <= todayMid) {
+    if (isIntermodal(s)) {
+      // No expected_lastcy_date means we know it left the port but not when it lands. Treat that
+      // as still moving rather than silently placing it at a yard it may not have reached.
+      const lastcy = parseYMD(s.expected_lastcy_date)
+      if (!lastcy || lastcy > todayMid) return 'rail'
+    }
+    return 'arrived'
+  }
   return 'enroute'
 }

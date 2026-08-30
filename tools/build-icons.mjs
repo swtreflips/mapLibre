@@ -21,7 +21,12 @@ import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-const SRC = join(ROOT, 'assets', 'vessel.svg')
+// Two source artworks now, one per moving marker. Both go through the same tiers and the same
+// symmetry assertion, because both rotate on the map and both hit the same traps.
+const ARTWORKS = [
+  { src: join(ROOT, 'assets', 'vessel.svg'), name: 'assets/vessel.svg', variants: 'VESSEL' },
+  { src: join(ROOT, 'assets', 'railcar.svg'), name: 'assets/railcar.svg', variants: 'RAIL' },
+]
 const OUT = join(ROOT, 'public', 'icons')
 
 // The literal hex values in assets/vessel.svg, and what each variant replaces them with.
@@ -61,20 +66,32 @@ const TIERS = [
 // Both variants share the dark stroke on purpose — same contour, different hull — so they read as
 // one family, and so the count numeral (which uses that same colour, held constant across both)
 // stays true to the icon it trails. On amber it reads as a dark olive edge.
-const VARIANTS = [
-  { file: 'nauticalDefault2.png', fill: '#FFC220', stroke: '#086A08', note: 'arrival_notice != yes' },
-  { file: 'nauticalGreen2.png', fill: '#23B14D', stroke: '#086A08', note: 'arrival_notice = yes' },
-]
-
-const svg = await readFile(SRC, 'utf8')
+const VARIANTS = {
+  VESSEL: [
+    { file: 'nauticalDefault2.png', fill: '#FFC220', stroke: '#086A08', note: 'arrival_notice != yes' },
+    { file: 'nauticalGreen2.png', fill: '#23B14D', stroke: '#086A08', note: 'arrival_notice = yes' },
+  ],
+  // ONE variant for rail. The ship's two colours encode arrival_notice; the inland leg has no
+  // equivalent signal, and a second colour would imply a distinction that does not exist. Steel
+  // grey, carrying the vessel's stroke so the pair reads as one family.
+  RAIL: [{ file: 'railcar.png', fill: '#9AA6B2', stroke: '#086A08', note: 'inland rail leg' }],
+}
 
 const STROKE_ATTR = `stroke-width="${BASE_STROKE_WIDTH}"`
-if (!svg.includes(BASE_FILL) || !svg.includes(BASE_STROKE) || !svg.includes(STROKE_ATTR)) {
-  throw new Error(
-    `assets/vessel.svg no longer contains the expected literals ` +
-      `(${BASE_FILL} / ${BASE_STROKE} / ${STROKE_ATTR}). The tier + variant swaps below match on ` +
-      `literal text — update BASE_FILL / BASE_STROKE / BASE_STROKE_WIDTH here to match the SVG.`,
-  )
+
+// The swaps below match on LITERAL TEXT, so an artwork whose hex had drifted would rasterise
+// silently in the wrong colour instead of failing. Check every source up front.
+async function readArtwork({ src, name, variants }) {
+  const svg = await readFile(src, 'utf8')
+  const baseFill = VARIANTS[variants][0].fill
+  if (!svg.includes(baseFill) || !svg.includes(BASE_STROKE) || !svg.includes(STROKE_ATTR)) {
+    throw new Error(
+      `${name} no longer contains the expected literals ` +
+        `(${baseFill} / ${BASE_STROKE} / ${STROKE_ATTR}). Update that artwork's first VARIANTS ` +
+        `entry, or BASE_STROKE / BASE_STROKE_WIDTH here, to match the SVG.`,
+    )
+  }
+  return { svg, baseFill, name, variants }
 }
 
 // The vessel is symmetric about its long axis, so the rendered alpha channel must mirror
@@ -116,15 +133,17 @@ async function assertVerticallySymmetric(buf, label) {
 }
 
 await mkdir(OUT, { recursive: true })
-console.log('Rasterising assets/vessel.svg:\n')
+const artworks = await Promise.all(ARTWORKS.map(readArtwork))
 
-for (const tier of TIERS) {
-  for (const { file, fill, stroke, note } of VARIANTS) {
+for (const { svg, baseFill, name, variants } of artworks) {
+  console.log(`Rasterising ${name}:`)
+  for (const tier of TIERS) {
+    for (const { file, fill, stroke, note } of VARIANTS[variants]) {
     // Order matters: replace the stroke colour first. If fill and stroke ever share a value,
     // doing fill first would rewrite the stroke too.
     const variantSvg = svg
       .split(BASE_STROKE).join(stroke)
-      .split(BASE_FILL).join(fill)
+      .split(baseFill).join(fill)
       .split(STROKE_ATTR).join(`stroke-width="${tier.strokeWidth}"`)
 
     const png = await sharp(Buffer.from(variantSvg))
@@ -145,8 +164,10 @@ for (const tier of TIERS) {
       `  ${outFile.padEnd(26)} ${meta.width}x${meta.height}  ${(size / 1024).toFixed(1)} KB  ` +
         `stroke ${tier.strokeWidth}  pixelRatio ${tier.pixelRatio}  logical ${logical} CSS px  ` +
         `sym ${skew}   (${tier.use}, ${note})`,
-    )
+      )
+    }
   }
+  console.log()
 }
 
 console.log(

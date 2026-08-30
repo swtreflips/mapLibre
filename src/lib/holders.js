@@ -2,13 +2,20 @@
 //
 // The map was first built thinking in containers: one icon per container, one selection per
 // shipment. The working model is the other way round. A container is always somewhere, and that
-// somewhere is either a VESSEL carrying it or a PORT it is sitting at. Both hold 1..N. Clicking
-// either fills the tray with what it holds.
+// somewhere is a VESSEL carrying it, a TRAIN carrying it, or a FACILITY it is sitting at. All
+// three hold 1..N. Clicking any of them fills the tray with what it holds.
 //
 // This module owns the grouping and nothing else — no map, no projection, no React. It answers
 // "what is where", and MapView decides how to draw it.
 
-import { normalizeKey, parseYMD, shipmentState } from './vesselMath'
+import { normalizeKey, parseYMD, shipmentState, currentFacility } from './vesselMath'
+
+// The sea lane. Two spellings are live: `route` on shipments that end at their discharge port, and
+// `sea_route` on intermodal ones that also carry a `rail_route`. Neither column exists in the
+// production schema yet (CLAUDE.md §14), so both have to work — and reading only `route` would
+// silently drop an intermodal shipment that is still at sea, because the lane lookup would miss
+// and the loop would skip it.
+const seaLane = (s) => s.sea_route ?? s.route
 
 // Sorted by shipment id so a container keeps its slot in a card stack and its row in the tray
 // across refreshes, rather than shuffling when the data reloads.
@@ -21,27 +28,44 @@ const byShipment = (a, b) => (a.shipment < b.shipment ? -1 : a.shipment > b.ship
  * @returns {{vessels: object[], ports: object[]}} holders, each { kind, key, name, subtitle,
  *   coordinates|route, containers[] }
  */
-export function buildHolders(shipments, routesByKey, portPoints) {
+export function buildHolders(shipments, routesByKey, portPoints, railByKey) {
   const vessels = new Map()
   const ports = new Map()
+  const trains = new Map()
 
   for (const s of shipments) {
     const state = shipmentState(s)
 
     if (state === 'arrived') {
-      // Grouped by DISCHARGE PORT regardless of route or port of loading — a yard holds what is
-      // in it, however it got there.
-      const key = normalizeKey(s.port_of_discharge)
+      // Grouped by the FACILITY THE BOX IS AT, which is not always the discharge port — once an
+      // inland leg is done the container lives at its Lastcy yard, and a card belongs there. A
+      // facility holds what is in it, however it got there.
+      const facility = currentFacility(s)
+      const key = normalizeKey(facility)
       if (!key) continue
-      if (!ports.has(key)) ports.set(key, { key, name: s.port_of_discharge, routeEnd: null, containers: [] })
+      if (!ports.has(key)) ports.set(key, { key, name: facility, routeEnd: null, containers: [] })
       const g = ports.get(key)
-      // Only a fallback anchor, for a port with no row in us_ports / world_ports. Taken from
-      // whichever container first offers a usable route, not necessarily the first in the group.
+      // Only a fallback anchor, for a facility with no row in us_ports / world_ports. Taken from
+      // whichever container first offers a usable lane, not necessarily the first in the group.
       if (!g.routeEnd) {
-        const c = routesByKey?.get(normalizeKey(s.route))
+        const c = railByKey?.get(normalizeKey(s.rail_route)) ?? routesByKey?.get(normalizeKey(seaLane(s)))
         if (c && c.length >= 2) g.routeEnd = c[c.length - 1]
       }
       g.containers.push(s)
+      continue
+    }
+
+    if (state === 'rail') {
+      // KEYED ON LANE + BOTH DATES. The lane alone would merge boxes that left the port on
+      // different days into one marker, and they are genuinely at different points on the track.
+      // Same lane and same dates means the same movement — a train.
+      const coords = railByKey?.get(normalizeKey(s.rail_route))
+      if (!coords || coords.length < 2) continue
+      const key = `${normalizeKey(s.rail_route)}|${s.actual_portdate}|${s.expected_lastcy_date}`
+      if (!trains.has(key)) {
+        trains.set(key, { key, lane: s.rail_route, coords, containers: [] })
+      }
+      trains.get(key).containers.push(s)
       continue
     }
 
@@ -50,11 +74,11 @@ export function buildHolders(shipments, routesByKey, portPoints) {
     // KEYED ON VESSEL + ROUTE, not vessel alone. One ship sails many lanes over a season, and the
     // route is also what supplies the polyline the group is positioned along — so a vessel serving
     // two lanes is genuinely two holders, in two places.
-    const coords = routesByKey?.get(normalizeKey(s.route))
+    const coords = routesByKey?.get(normalizeKey(seaLane(s)))
     if (!coords || coords.length < 2) continue
-    const key = `${normalizeKey(s.vessel)}|${normalizeKey(s.route)}`
+    const key = `${normalizeKey(s.vessel)}|${normalizeKey(seaLane(s))}`
     if (!vessels.has(key)) {
-      vessels.set(key, { key, name: s.vessel, route: s.route, coords, containers: [] })
+      vessels.set(key, { key, name: s.vessel, route: seaLane(s), coords, containers: [] })
     }
     vessels.get(key).containers.push(s)
   }
@@ -75,13 +99,35 @@ export function buildHolders(shipments, routesByKey, portPoints) {
         containers: v.containers,
       }
     }),
+    // One holder per movement along a rail lane. Positioned exactly like a vessel — the same
+    // progress and interpolation helpers — because it is the same problem: a thing travelling a
+    // polyline between two dates.
+    trains: [...trains.values()].map((t) => {
+      t.containers.sort(byShipment)
+      return {
+        kind: 'rail',
+        key: t.key,
+        name: t.lane,
+        subtitle: 'Inland rail',
+        coords: t.coords,
+        // Every container in this group shares both dates by construction — that is the grouping
+        // key — so the first row's are the group's.
+        etd: parseYMD(t.containers[0]?.actual_portdate),
+        eta: parseYMD(t.containers[0]?.expected_lastcy_date),
+        containers: t.containers,
+      }
+    }),
     ports: [...ports.values()].map((p) => {
       p.containers.sort(byShipment)
       return {
         kind: 'port',
         key: p.key,
         name: p.name,
-        subtitle: 'Port of discharge',
+        // A facility is not always a seaport now: an inland yard holds containers that finished a
+        // rail leg. The label follows the place rather than assuming the sea.
+        subtitle: p.containers.some((c) => normalizeKey(c.Lastcy) === p.key && normalizeKey(c.port_of_discharge) !== p.key)
+          ? 'Inland container yard'
+          : 'Port of discharge',
         // The PORT's own coordinate — the exact point its label is drawn at. The sea route's last
         // vertex is a lane-graph node near the port, not the port, so it is only a fallback.
         coordinates: portPoints?.get(p.key) ?? p.routeEnd,

@@ -17,7 +17,7 @@ import { relaxOverlaps } from '../map/declutter'
 import { buildHolders, etaDisagreements } from '../lib/holders'
 import { useUsPorts } from '../hooks/useUsPorts'
 import { useLoadingPorts } from '../hooks/useLoadingPorts'
-import { useRailRoute } from '../hooks/useRailRoute'
+import { useRailRoutes } from '../hooks/useRailRoute'
 
 const INITIAL_CENTER = [0, 20]
 const INITIAL_ZOOM = 1.5
@@ -125,11 +125,7 @@ const computeMinZoom = (width) => Math.log2(width / 512)
 
 const EMPTY_FC = { type: 'FeatureCollection', features: [] }
 
-// HARDCODED TEST LANE for the new `rail_routes` table, exactly as the drayage leg was proved out
-// before it. It answers one question — what does rail geometry look like on this basemap — and is
-// not a feature. The real one takes the pair from a shipment's intermodal leg.
-// Delete this constant and the useRailRoute call below when that lands.
-const RAIL_TEST = { origin: 'New York, NY', destination: 'Cincinnati, OH' }
+
 
 // Search dimming for the vessel layer, sharing the port card's constant so a ghosted ship and a
 // ghosted container box sit at the same remove. Every feature carries matched: 1 when no filter is
@@ -280,11 +276,12 @@ function syncPortCards(map, ports, cards, onPick) {
 // `matchedIds` is null when no search filter is active, and a Set of shipment ids when one is.
 // Null and "the empty set" mean different things and must stay distinct: null is "no filter, draw
 // everything at full strength", empty is "a filter that matched nothing, dim the whole map".
-function buildFeatures(shipments, routesByKey, map, portPoints, matchedIds) {
+function buildFeatures(shipments, routesByKey, railByKey, map, portPoints, matchedIds) {
   const mapBearing = map.getBearing()
   const isMatch = (c) => !matchedIds || matchedIds.has(c.shipment)
-  const { vessels, ports: portHolders } = buildHolders(shipments, routesByKey, portPoints)
+  const { vessels, trains, ports: portHolders } = buildHolders(shipments, routesByKey, portPoints, railByKey)
   const shipFeatures = []
+  const railFeatures = []
   // holder key -> { holder, remaining }. Selection is per HOLDER now, not per shipment: one icon
   // standing for three containers has no single shipment to show, which is exactly why the sidebar
   // became a tray.
@@ -321,6 +318,30 @@ function buildFeatures(shipments, routesByKey, map, portPoints, matchedIds) {
     })
   }
 
+  // THE INLAND LEG. Same maths as the vessel — a thing travelling a polyline between two dates —
+  // so it reuses computeProgress and positionAtProgress rather than reimplementing them. What
+  // differs is only which lane and which pair of dates: the rail lane, and actual_portdate ->
+  // expected_lastcy_date.
+  for (const t of trains) {
+    const progress = computeProgress(t.etd, t.eta)
+    const { pos, cut } = positionAtProgress(t.coords, progress)
+    if (!pos) continue
+    const next = t.coords[Math.min(cut + 1, t.coords.length - 1)]
+    const bearing = computeBearing(pos, next)
+    byId.set(t.key, { holder: t, remaining: [pos, ...t.coords.slice(cut + 1)] })
+    railFeatures.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: pos },
+      properties: {
+        holder: t.key,
+        rotation: bearing - 90,
+        count: t.containers.length,
+        textOffset: sternOffset(bearing, mapBearing),
+        matched: t.containers.some(isMatch) ? 1 : 0,
+      },
+    })
+  }
+
   // ONE CARD PER PORT, not one icon per container. The old golden-angle spiral fanned every
   // container around its port, which answered the wrong question — you counted scattered boxes
   // instead of reading a port's load at a glance, and a busy port became a smear.
@@ -342,6 +363,7 @@ function buildFeatures(shipments, routesByKey, map, portPoints, matchedIds) {
 
   return {
     shipFC: { type: 'FeatureCollection', features: shipFeatures },
+    railFC: { type: 'FeatureCollection', features: railFeatures },
     ports,
     byId,
   }
@@ -374,7 +396,13 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
   const { routesByKey, loading, error } = useRoutes()
   const { usPorts } = useUsPorts()
   const { intlPorts } = useLoadingPorts()
-  const { route: railRoute } = useRailRoute(RAIL_TEST.origin, RAIL_TEST.destination)
+  // Only the rail lanes this data actually uses. The table holds 540 of them at ~15 KB each, so
+  // fetching the lot would be ~8 MB to draw the one or two that are in play.
+  const railLanes = useMemo(
+    () => [...new Set(shipments.map((s) => s.rail_route).filter(Boolean))],
+    [shipments],
+  )
+  const { railByKey } = useRailRoutes(railLanes)
 
   // --- Map init (once). Do not rewrite this block. ---
   useEffect(() => {
@@ -469,11 +497,13 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
     map.on('load', async () => {
       // Containers are no longer sprites — a port draws one isometric card as a DOM marker
       // (src/map/portCard.js), so only the vessel tiers load here.
-      const [def, grn, defSm, grnSm] = await Promise.all([
+      const [def, grn, defSm, grnSm, rail, railSm] = await Promise.all([
         map.loadImage('/icons/nauticalDefault2.png'), // default vessel (MarineTraffic green)
         map.loadImage('/icons/nauticalGreen2.png'),
         map.loadImage('/icons/nauticalDefault2-sm.png'), // low-zoom tier, see below
         map.loadImage('/icons/nauticalGreen2-sm.png'),
+        map.loadImage('/icons/railcar.png'), // the inland leg's marker, same two tiers
+        map.loadImage('/icons/railcar-sm.png'),
       ])
       // Ships rasterised from assets/vessel.svg, tagged 2x density so outlines stay crisp
       // under GPU minification.
@@ -484,6 +514,8 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
       // Registering it at 2 like the others would draw it at half size.
       if (!map.hasImage('shipDefaultSm')) map.addImage('shipDefaultSm', defSm.data, { pixelRatio: 1 })
       if (!map.hasImage('shipGreenSm')) map.addImage('shipGreenSm', grnSm.data, { pixelRatio: 1 })
+      if (!map.hasImage('railcar')) map.addImage('railcar', rail.data, { pixelRatio: 2 })
+      if (!map.hasImage('railcarSm')) map.addImage('railcarSm', railSm.data, { pixelRatio: 1 })
 
       const palette = mapPalette()
 
@@ -559,37 +591,36 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
         },
       })
 
-      // Rail: the intermodal leg, from `rail_routes`. HARDCODED TEST PAIR — see RAIL_TEST below.
+      // THE INLAND LEG's marker. Same treatment as the vessel throughout — two size tiers
+      // swapped at z4, rotation-alignment 'map', the count numeral trailing astern — because it is
+      // the same kind of object: a thing moving along a line whose heading means something.
       //
-      // Drawn as the standard cartographic RAILWAY HATCH: a dark solid line with short light
-      // dashes laid over it, which reads as sleepers on a track. That matters because the map now
-      // carries three kinds of leg, and they are told apart by LINE STYLE rather than colour so the
-      // distinction survives for a colourblind reader (the same rule the drayage layer follows):
-      //   ocean   thin dashed          remaining-route
-      //   truck   solid, white casing  drayage-route
-      //   rail    solid + hatch        this
-      //
-      // line-dasharray units are multiples of the LINE WIDTH, not pixels — the same trap the state
-      // borders hit (CLAUDE.md §15) — so the hatch spacing changes if you change line-width here.
-      map.addSource('rail-route', { type: 'geojson', data: EMPTY_FC })
+      // One image, not two. The ship's amber/green encodes arrival_notice; rail has no equivalent
+      // signal (assets/railcar.svg), so a second colour would imply a distinction that isn't there.
+      map.addSource('rail-movers', { type: 'geojson', data: EMPTY_FC })
       map.addLayer({
-        id: 'rail-route-bed',
-        type: 'line',
-        source: 'rail-route',
-        layout: { 'line-cap': 'butt', 'line-join': 'round' },
-        paint: { 'line-color': '#4a4a4a', 'line-width': 3, 'line-opacity': 0.95 },
-      })
-      map.addLayer({
-        id: 'rail-route-ties',
-        type: 'line',
-        source: 'rail-route',
-        // Butt caps are required: round caps extend each dash past its length and quietly close
-        // the gaps, turning the hatch back into a solid line.
-        layout: { 'line-cap': 'butt', 'line-join': 'round' },
+        id: 'rail-movers',
+        type: 'symbol',
+        source: 'rail-movers',
+        layout: {
+          'icon-image': ['step', ['zoom'], 'railcarSm', 4, 'railcar'],
+          'icon-rotate': ['get', 'rotation'],
+          'icon-rotation-alignment': 'map',
+          'icon-allow-overlap': true,
+          'icon-size': vesselScaled(1),
+          'text-field': ['case', ['>', ['get', 'count'], 1], ['to-string', ['get', 'count']], ''],
+          'text-font': FONT_BOLD,
+          'text-size': ['interpolate', ['linear'], ['zoom'], 2, 10, 6, 12, 10, 16],
+          'text-offset': ['get', 'textOffset'],
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
+        },
         paint: {
-          'line-color': '#ffffff',
-          'line-width': 1.6,
-          'line-dasharray': [1.4, 1.4],
+          'icon-opacity': MATCH_OPACITY,
+          'text-color': palette.vesselOutline,
+          'text-halo-color': palette.labelHalo,
+          'text-halo-width': 1.2,
+          'text-opacity': MATCH_OPACITY,
         },
       })
 
@@ -735,7 +766,7 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
 
       const handleFeatureClick = (e) => selectHolder(e.features?.[0]?.properties?.holder)
 
-      for (const layer of ['vessels']) {
+      for (const layer of ['vessels', 'rail-movers']) {
         map.on('mouseenter', layer, () => {
           map.getCanvas().style.cursor = 'pointer'
         })
@@ -747,7 +778,7 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
 
       // Click empty map: clear selection + dashed line.
       map.on('click', (e) => {
-        const hits = map.queryRenderedFeatures(e.point, { layers: ['vessels'] })
+        const hits = map.queryRenderedFeatures(e.point, { layers: ['vessels', 'rail-movers'] })
         if (hits.length > 0) return
         clearSelection()
       })
@@ -785,21 +816,7 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
     map.getSource('places')?.setData(buildPlacesFC({ usPorts, intlPorts }))
   }, [mapReady, usPorts, intlPorts])
 
-  // The hardcoded rail leg. Its own effect rather than part of the vessel rebuild: it is not
-  // derived from shipments, and it changes only when the fetch resolves.
-  useEffect(() => {
-    const map = mapRef.current
-    if (!mapReady || !map) return
-    map.getSource('rail-route')?.setData(
-      railRoute
-        ? {
-            type: 'Feature',
-            geometry: { type: 'LineString', coordinates: railRoute.coordinates },
-            properties: {},
-          }
-        : EMPTY_FC,
-    )
-  }, [mapReady, railRoute])
+
 
   // Where the port cards get anchored: the ports' own coordinates, the same ones the labels above
   // are drawn at. Memoized because it is a dependency of the rebuild effect — rebuilt inline it
@@ -813,11 +830,19 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
     if (!mapReady || !map || !routesByKey) return
 
     const rebuild = () => {
-      const { shipFC, ports, byId } = buildFeatures(shipments, routesByKey, map, portPoints, matchedIds)
+      const { shipFC, railFC, ports, byId } = buildFeatures(
+        shipments,
+        routesByKey,
+        railByKey,
+        map,
+        portPoints,
+        matchedIds,
+      )
       vesselsByIdRef.current = byId
       portsRef.current = ports
       cardModeRef.current = cardMode(map.getZoom())
       map.getSource('vessels')?.setData(shipFC)
+      map.getSource('rail-movers')?.setData(railFC)
       syncPortCards(map, ports, cardsRef.current, (key) => selectHolderRef.current?.(key))
 
       // Keep the dashed line in sync if the selected ship still exists (containers have none).
@@ -861,7 +886,7 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
       map.off('zoomend', rebuild)
       map.off('rotateend', rebuild)
     }
-  }, [mapReady, routesByKey, shipments, portPoints, matchedIds])
+  }, [mapReady, routesByKey, railByKey, shipments, portPoints, matchedIds])
 
   return (
     <div className="map-wrap">

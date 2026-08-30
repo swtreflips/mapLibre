@@ -1,0 +1,51 @@
+<!--
+  Rail marker — the MASTER for public/icons/railcar*.png.
+
+  Source art, not served: `npm run build:icons` rasterises it into public/icons/. Edit here, never
+  the PNGs — the same rule assets/vessel.svg carries, and for the same reason.
+
+  GEOMETRY. A container car in plan view: square tail, chamfered leading end so direction reads at
+  a glance. Points, in order:
+       6,15     tail top
+      50,15     start of the leading chamfer, top
+      60,21     nose top      - the EAST end, so the car points east at icon-rotate 0, which is
+      60,34     nose bottom     why MapView writes `rotation = bearing - 90` for rail too
+      50,40     end of chamfer, bottom
+       6,40     tail bottom
+
+  PROPORTION IS THE READ. The first cut was 54x35 - nearly square, and at map size it read as a
+  grey tag rather than a vehicle. 54x25 is long enough to say "car" while still carrying enough
+  ink to be seen at z5.
+
+  SYMMETRY AXIS MUST EQUAL THE CANVAS CENTRE, i.e. y = height/2 = 27.5. Every pair sums to 55:
+  15+40 and 21+34. build-icons.mjs asserts this by mirroring the rendered alpha, because the icon
+  rotates and MapLibre rotates about the CANVAS centre — art that sits half a pixel off-axis orbits
+  that offset instead of spinning on its own, which is what made the first vessel's stern flaps
+  read as lopsided.
+
+  DELIBERATELY NOT A DART. The ship is a sharp-bowed dart; this is a blunt rectangle with one
+  chamfered end. The two moving markers are told apart by SILHOUETTE, not by colour, which is the
+  same rule the three route styles follow and the reason it survives for a colour-blind reader.
+
+  Ink is 54x25 inside a 66x55 canvas, so the margin is 5px on the sides and 14px top and bottom —
+  comfortably past the ~3px the sprite atlas needs. MapLibre packs icons together and, with ink
+  flush to the edge, bilinear sampling under `icon-rotate` reaches past the icon and drags in its
+  neighbours. Do not tighten this viewBox.
+
+  STROKE-WIDTH 2 IS A FLOOR, NOT A STYLE. At pixelRatio 2 it lands at 1 CSS px; below a device
+  pixel it flickers as the icon turns. build-icons.mjs raises it for the small tier.
+
+  ONE VARIANT, not two. The ship has amber and green because `arrival_notice` is a real signal; the
+  inland leg has no equivalent, and a second colour here would imply a distinction that does not
+  exist. The stroke is the vessel's #086A08 so the two read as one family and the count numeral —
+  which takes that same colour — still belongs to the icon it trails.
+
+  tools/build-icons.mjs swaps these two hex values, so keep them as literal hex.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="66" height="55" viewBox="0 0 66 55">
+  <polygon points="6,15 50,15 60,21 60,34 50,40 6,40"
+           fill="#9AA6B2"
+           stroke="#086A08"
+           stroke-width="2"
+           stroke-linejoin="round" />
+</svg>
