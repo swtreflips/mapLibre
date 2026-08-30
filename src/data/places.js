@@ -112,6 +112,31 @@ export const US_PORT_EXCLUSIONS = new Set(
   ].map((s) => s.toLowerCase()),
 )
 
+// ── Port complexes ───────────────────────────────────────────────────────────────────
+//
+// Some neighbouring ports work as ONE complex and should read as one place on the map. Los Angeles
+// and Long Beach share a harbour and are routinely quoted as a single gateway; Miami and Port
+// Everglades sit an hour apart and are handled as a pair. Left alone, each gets its own card, and
+// at the zoom cards appear those cards sit on top of one another and say less together than either
+// would alone.
+//
+// DISPLAY ONLY. This merges the CARD — the holder, its name and its anchor. It never rewrites a
+// shipment: every container card in the tray still shows the actual port its box is at, because
+// that is operational fact and this is a cartographic convenience.
+//
+// Keys are normalizeKey form; values are the canonical display name, which must itself be a real
+// `us_ports` row or the merged card will have nothing to anchor to.
+export const PORT_ALIASES = new Map([
+  ['long beach, ca', 'Los Angeles, CA'],
+  ['port everglades, fl', 'Miami, FL'],
+])
+
+/** The name a port should be GROUPED and LABELLED under. Identity for everything unaliased. */
+export const canonicalPort = (name) => PORT_ALIASES.get(normalizeKey(name)) ?? name
+
+/** The grouping key for a facility, with any complex already resolved. */
+export const facilityKey = (name) => normalizeKey(canonicalPort(name))
+
 export const isExcludedUsPort = (row) =>
   US_PORT_EXCLUSIONS.has((row.canonical_name || '').trim().toLowerCase())
 

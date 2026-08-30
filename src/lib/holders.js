@@ -9,6 +9,7 @@
 // "what is where", and MapView decides how to draw it.
 
 import { normalizeKey, parseYMD, shipmentState, currentFacility } from './vesselMath'
+import { canonicalPort, facilityKey } from '../data/places'
 
 // The sea lane. Two spellings are live: `route` on shipments that end at their discharge port, and
 // `sea_route` on intermodal ones that also carry a `rail_route`. Neither column exists in the
@@ -40,8 +41,13 @@ export function buildHolders(shipments, routesByKey, portPoints, railByKey) {
       // Grouped by the FACILITY THE BOX IS AT, which is not always the discharge port — once an
       // inland leg is done the container lives at its Lastcy yard, and a card belongs there. A
       // facility holds what is in it, however it got there.
-      const facility = currentFacility(s)
-      const key = normalizeKey(facility)
+      //
+      // Then folded through canonicalPort, which merges a two-port complex into one card: Long
+      // Beach into Los Angeles, Port Everglades into Miami (src/data/places.js). Display only —
+      // the container's own card in the tray still names the actual port it sits at.
+      const here = currentFacility(s)
+      const facility = canonicalPort(here)
+      const key = facilityKey(here)
       if (!key) continue
       if (!ports.has(key)) ports.set(key, { key, name: facility, routeEnd: null, containers: [] })
       const g = ports.get(key)
@@ -125,7 +131,11 @@ export function buildHolders(shipments, routesByKey, portPoints, railByKey) {
         name: p.name,
         // A facility is not always a seaport now: an inland yard holds containers that finished a
         // rail leg. The label follows the place rather than assuming the sea.
-        subtitle: p.containers.some((c) => normalizeKey(c.Lastcy) === p.key && normalizeKey(c.port_of_discharge) !== p.key)
+        // Compared through facilityKey on BOTH sides, or a container whose Lastcy is Long Beach
+        // would never match a card keyed on Los Angeles.
+        subtitle: p.containers.some(
+          (c) => facilityKey(c.Lastcy) === p.key && facilityKey(c.port_of_discharge) !== p.key,
+        )
           ? 'Inland container yard'
           : 'Port of discharge',
         // The PORT's own coordinate — the exact point its label is drawn at. The sea route's last

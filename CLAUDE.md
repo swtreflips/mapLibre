@@ -457,6 +457,17 @@ Clicking either fills the sidebar with a **tray** — one card per container it 
 | vessel | `vessel + route` — a **voyage**, not a name; one ship sails many lanes and the route supplies the polyline | interpolated position (§5.1) |
 | port | `port_of_discharge` | the port's own coordinate (§5.4) |
 
+**Two-port complexes merge into one card.** `PORT_ALIASES` in [places.js](src/data/places.js) folds
+Long Beach into `Los Angeles, CA` and Port Everglades into `Miami, FL`, because each pair works as
+one gateway and their anchors are close enough that two cards collide — Los Angeles and Long Beach
+are **4.6 km apart**. Grouping goes through `facilityKey()`, which resolves the alias, so it must be
+used on BOTH sides of any comparison: a container whose `Lastcy` is Long Beach would never match a
+card keyed on Los Angeles otherwise.
+
+**Display only.** It merges the holder, its name and its anchor; it never rewrites a shipment, so
+every container card in the tray still names the port its box is actually at. The alias VALUE must
+be a real `us_ports` row or the merged card has nothing to anchor to.
+
 **One ETA per voyage.** Rows on the same vessel+route can disagree; a ship is in one place, so the
 group takes the **latest** `expected_portdate` (a container cannot arrive before its ship) and the
 DEV log names the disagreement rather than hiding it.

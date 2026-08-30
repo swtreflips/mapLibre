@@ -116,7 +116,7 @@ const inboundShipments = [
     actual_shipping: '2026-07-01',
     expected_portdate: '2026-08-29',
     actual_portdate: '2026-08-29',
-    expected_lastcy_date: '2026-08-29', // TEST: red container at New York (> 3 days at CY, no appointment)
+    expected_lastcy_date: '2026-09-10', // TEST: red container at New York (> 3 days at CY, no appointment)
     appointment_date: '',
     arrival_notice: 'no',
     last_freeday: '',
@@ -252,6 +252,61 @@ const inboundShipments = [
     last_freeday: '',
     items: [
       { po_number: 'PO155563', item: 'KRSP-NK161118', qty: 1180, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
+    ],
+  },
+  // TEST: the LOS ANGELES / LONG BEACH complex. Two blue containers, one at each port, which
+  // places.js folds into a single card named "Los Angeles, CA" (PORT_ALIASES). The two anchors are
+  // only 4.6 km apart, so without the merge their cards sit on top of each other.
+  //
+  // Each container's own card in the tray still names the port it is actually at — the merge is
+  // display only.
+  {
+    shipment: 'INBSHIP3961',
+    container: 'MSCU7781203',
+    vessel: 'MSC ANNA',
+    confirmed_carrier: 'MSC',
+    freight_forwarder: 'Topocean Consolidation Service (Los Angeles)',
+    drayage_provider: 'Unis Transportation, LLC',
+    hbl: 'MEDUL9920145',
+    mbl: 'MEDUL9920145',
+    port_of_loading: 'Bangkok, Thailand',
+    port_of_discharge: 'Los Angeles, CA',
+    Lastcy: 'Los Angeles, CA',
+    route: 'Bangkok, Thailand - Los Angeles, CA',
+    actual_shipping: daysAgo(34),
+    expected_portdate: daysAgo(1),
+    actual_portdate: daysAgo(1),
+    appointment_date: '',
+    arrival_notice: 'yes',
+    last_freeday: daysAhead(4),
+    items: [
+      { po_number: 'PO155560', item: 'TCCF-NK10712', qty: 520, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
+    ],
+  },
+  {
+    // NOTE: sea_routes has no lane into Long Beach — every US west-coast lane lands at
+    // "Los Angeles, CA". Harmless here because an arrived container is anchored by its PORT, not by
+    // the route's last vertex; it would matter if this one were still at sea.
+    shipment: 'INBSHIP3962',
+    container: 'MSCU8830471',
+    vessel: 'MSC ANNA',
+    confirmed_carrier: 'MSC',
+    freight_forwarder: 'Topocean Consolidation Service (Los Angeles)',
+    drayage_provider: 'Unis Transportation, LLC',
+    hbl: 'MEDUL9920146',
+    mbl: 'MEDUL9920145',
+    port_of_loading: 'Bangkok, Thailand',
+    port_of_discharge: 'Long Beach, CA',
+    Lastcy: 'Long Beach, CA',
+    route: 'Bangkok, Thailand - Long Beach, CA',
+    actual_shipping: daysAgo(34),
+    expected_portdate: daysAgo(1),
+    actual_portdate: daysAgo(1),
+    appointment_date: '',
+    arrival_notice: 'yes',
+    last_freeday: daysAhead(4),
+    items: [
+      { po_number: 'PO155561', item: 'PARE-WT10712', qty: 410, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
     ],
   },
 ]
