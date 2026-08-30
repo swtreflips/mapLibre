@@ -46,7 +46,16 @@ const VESSEL_SCALE_STOPS = [
   [1.6, 0.48],
   [2.2, 0.62],
   [6, 1.0],
-  [10, 1.4],
+  // The curve PEAKS at 8.67 and comes back down. Unusual for a marker, and deliberate: past this
+  // zoom the map is showing a terminal rather than a coastline, so the icon stops being a locator
+  // and starts being an obstruction — 46 px of ship laid over the berth it is supposed to point at.
+  //
+  // 1.267 is exactly what the old 6 -> 10 line evaluated to at 8.67, so everything below the band
+  // is unchanged to the last decimal; only 8.67 -> 11.2 moves. Above 11.2 it holds at 1.0, which is
+  // the same 33 px the artwork is baked at, so at street zoom the sprite is drawn 1:1 and never
+  // resampled up.
+  [8.67, 1.267],
+  [11.2, 1.0],
 ]
 
 // base -> zoom interpolate on the vessel curve. `perFeature`, if given, is a data expression

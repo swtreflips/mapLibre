@@ -332,14 +332,20 @@ a very different size — don't just change `icon-size`.
 
   Both report **~33 CSS px logical width**, so one `icon-size` expression drives both and the
   switch changes outline *weight*, never size. `icon-size` stops
-  (**1.6→0.48**, 2.2→0.62, 6→1.0, 10→1.4), shared by the vessel and rail layers.
+  (**1.6→0.48**, 2.2→0.62, 6→1.0, **8.67→1.267, 11.2→1.0**), shared by the vessel and rail layers.
+
+  **The curve peaks at 8.67 and comes back down**, which is unusual for a marker and deliberate:
+  past that zoom the map shows a terminal rather than a coastline, so the icon stops being a
+  locator and becomes an obstruction — 46 px of ship laid over the berth it is meant to point at.
+  It settles at 1.0, which is the **33 px the artwork is baked at**, so at street zoom the sprite
+  draws 1:1 and is never resampled up.
 
   The bottom segment is separate because below z2 the curve used to **clamp** at 0.6, so an icon at
   the fully-zoomed-out view was the same size as one at z2 — and down there it floats on an ocean
   with nothing to be read against, competing with the port bubbles rather than adding to them.
-  **2.2 is a deliberate rejoin, not a round number:** 0.62 is exactly what the old 2→6 line
-  evaluated to there, so everything from 2.2 up is unchanged to the last decimal and only the
-  1.6–2.2 band moved.
+  **Both band edges are deliberate rejoins, not round numbers.** 0.62 is exactly what the old 2→6
+  line evaluated to at 2.2, and 1.267 is exactly what the 6→10 line evaluated to at 8.67 — so each
+  retune left everything outside its own band unchanged to the last decimal.
 - **Containers** are no longer sprites — each port draws one isometric SVG card (§5.4, CARDS.md).
 
 **The ships were rebuilt from vector because a raster master rotted the contour.** The old art was
