@@ -146,7 +146,7 @@ export const currentFacility = (s, today = new Date()) =>
 
 // When it reached THAT facility. Dwell has to be measured from arrival at the place it is now,
 // not from actual_portdate: an intermodal box that cleared its seaport months ago would otherwise
-// arrive at its inland yard already reading AGING 84D.
+// arrive at its inland yard already reading AT YARD 84D.
 //
 // The inland date is an ESTIMATE — there is no actual_lastcy_date column — so a box appears at the
 // yard on expected_lastcy_date whether or not it truly arrived. Same honest-position caveat the
@@ -223,8 +223,19 @@ export function containerStatus(s, today = new Date()) {
   // line and said the same thing twice.
   const days = daysAtCY(s, today) ?? 0
   if (isSet(s.appointment_date)) return { tone: 'green', label: 'BOOKED', detail: '' }
-  if (days > 3) return { tone: 'red', label: `AGING ${days}D`, detail: '' }
-  return { tone: 'blue', label: days === 0 ? 'LANDED TODAY' : `AT YARD ${days}D`, detail: '' }
+
+  // ONE WORDING FOR BOTH DWELL STATES. Red said `AGING 83D` and blue `AT YARD 2D`; they now share
+  // `AT YARD ${days}D` and only the TONE forks. The label states the fact — how long the box has
+  // sat — and leaves the judgement to the number.
+  //
+  // Note what this costs, because it is the one place in the app that bends the rule in §8 about
+  // never resting a distinction on hue alone: the WORD no longer separates red from blue. The
+  // NUMBER still does, exactly and by definition — the threshold is three days, so `AT YARD 12D`
+  // can only be red and `AT YARD 2D` can only be blue — but that is redundancy a reader has to know
+  // the rule to use, where "AGING" simply said the conclusion. The card's 2px tone bar and the
+  // Overview's "Red containers" row are the other two channels.
+  const label = days === 0 ? 'LANDED TODAY' : `AT YARD ${days}D`
+  return { tone: days > 3 ? 'red' : 'blue', label, detail: '' }
 }
 
 // ── The voyage line ───────────────────────────────────────────────────────────────────

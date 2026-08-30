@@ -454,7 +454,7 @@ that date, and it joins the complex's single card. A genuine inland leg out of t
 - **Dwell is measured from arrival at the facility the box is actually in** — `arrivedAtFacility()`
   returns `expected_lastcy_date` for an inland box, `actual_portdate` for a port one. Without that
   split, a box that cleared its seaport in June arrives at its inland yard already reading
-  `AGING 84D`.
+  `AT YARD 84D`.
 - **`expected_lastcy_date` is an estimate and there is no `actual_lastcy_date`**, so the box appears
   at the yard on that date whether or not it truly arrived — the same honest-position caveat as §6.
 - A shipment with an inland leg carries **`sea_route` + `rail_route`** instead of `route`. Read
@@ -638,10 +638,19 @@ the data held exactly 1 — grouping is what made it honest.
   which exists because **the live fixture cannot reach two of the three branches** — both en-route
   vessels sat past halfway when this was written, so clicking around the app exercises `arriving`
   and nothing else.
-- **The chip carries a WORD, not just a tone** (`AGING 83D`, `BOOKED`, `ON WATER`). On the map,
-  which arm a container sits in encodes status independently of hue (CARDS.md §2); a flat tray has
-  no arms, so the label does that job there. `containerStatus()` in
+- **The chip carries a WORD, not just a tone** (`AT YARD 83D`, `BOOKED`, `ON WATER`, `ON RAIL`).
+  On the map, which arm a container sits in encodes status independently of hue (CARDS.md §2); a
+  flat tray has no arms, so the label does that job there. `containerStatus()` in
   [vesselMath.js](src/lib/vesselMath.js) returns both; `containerColor` is now a wrapper on it.
+
+  **The two dwell states share one wording, and that is the app's one concession on this rule.**
+  Red used to read `AGING 83D` against blue's `AT YARD 2D`; both now say `AT YARD ${days}D` and
+  only the tone forks. So the WORD no longer separates red from blue — the **number** does,
+  exactly and by definition, since the threshold is three days: `AT YARD 12D` can only be red and
+  `AT YARD 2D` can only be blue. That is real redundancy, but weaker, because it needs the reader
+  to know the rule where "AGING" stated the conclusion outright. Two further channels carry it:
+  the card's 2px tone bar, and the Overview's `Red containers` / `Blue containers` rows. If the
+  distinction ever needs to be louder again, this is the line to change.
 - **The card has TWO FACES, and a sticky-note icon flips between them.** Face one is the fact grid;
   face two is a notepad ([NotesPad.jsx](src/components/NotesPad.jsx),
   [notes.js](src/lib/notes.js)). Notes replace the facts rather than sitting under them — the tray
@@ -713,8 +722,9 @@ views of one fleet give two answers.
   rather than by state. Green keeps `Booked`, because that is the actionable fact about it and the
   only one of the three that says what to do rather than how long it has sat. Naming a row by its
   colour helps rather than hurts here: the word tells you the colour you would otherwise have to
-  see. Note the tray chips still read `AGING 83D` / `AT YARD 2D`, since they carry a dwell count
-  the summary has no room for — the two vocabularies deliberately differ.
+  see. The tray chips read `AT YARD 83D` / `AT YARD 2D` — the same wording for both, with the
+  dwell count this summary has no room for. So the two panels name the same container two ways
+  on purpose: here by its colour, there by how long it has sat.
 - **`Arriving next 7 days` is a ROLLING window, not the calendar week.** On a Friday it still
   includes next Monday, which is the point: a calendar week hides Monday's arrivals every Friday
   afternoon, exactly when someone is planning for them. The label is derived from `SOON_DAYS` so
