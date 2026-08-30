@@ -561,8 +561,8 @@ the containers behind it.
 
 | group | rows |
 |---|---|
-| **In transit** | On water · On rail · Arriving ≤7d · Overdue |
-| **At rest** | Aging (red) · At yard (blue) · Booked (green) |
+| **In transit** | On water · On rail · Arriving next 7 days · Overdue |
+| **At rest** | Red containers · Blue containers · Booked (green) |
 
 **Every classification comes from `shipmentState` / `containerStatus`.** `computeStats` used to
 live inside Sidebar.jsx with its own date arithmetic, and the two drifted: the panel reported
@@ -570,7 +570,17 @@ live inside Sidebar.jsx with its own date arithmetic, and the two drifted: the p
 counts a container riding a train as sitting in a yard it never reached. One state machine, or two
 views of one fleet give two answers.
 
-- **Arriving ≤7d / Overdue** use `finalYardEta(s)` — `expected_lastcy_date` for an intermodal box,
+- **The at-rest rows are named the way ops talks** — "a red container", "a blue container" —
+  rather than by state. Green keeps `Booked`, because that is the actionable fact about it and the
+  only one of the three that says what to do rather than how long it has sat. Naming a row by its
+  colour helps rather than hurts here: the word tells you the colour you would otherwise have to
+  see. Note the tray chips still read `AGING 83D` / `AT YARD 2D`, since they carry a dwell count
+  the summary has no room for — the two vocabularies deliberately differ.
+- **`Arriving next 7 days` is a ROLLING window, not the calendar week.** On a Friday it still
+  includes next Monday, which is the point: a calendar week hides Monday's arrivals every Friday
+  afternoon, exactly when someone is planning for them. The label is derived from `SOON_DAYS` so
+  the window and the wording cannot disagree.
+- **Arriving next 7 days / Overdue** use `finalYardEta(s)` — `expected_lastcy_date` for an intermodal box,
   `expected_portdate` otherwise, since for a port-delivered container the port date *is* the CY
   date. Built on `isIntermodal`, so the port-complex exception (§7) applies for free.
 - **Overdue is shown even at zero.** "4 arriving soon" with the late ones quietly dropped would

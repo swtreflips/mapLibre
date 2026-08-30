@@ -67,7 +67,11 @@ function Snapshot({ stats, onCommit }) {
         <Stat label="On water" count={stats.transit.water} group="In transit" onPick={pick('water')} />
         <Stat label="On rail" count={stats.transit.rail} group="In transit" onPick={pick('rail')} />
         <Stat
-          label={`Arriving ${SOON_DAYS}d`}
+          // Derived from SOON_DAYS rather than written out, so the window and the label can never
+          // disagree. NOT "this week": the rule is a ROLLING seven days, so on a Friday it still
+          // includes next Monday — which is the point. A calendar week would hide Monday's
+          // arrivals every Friday afternoon, exactly when someone is planning for them.
+          label={`Arriving next ${SOON_DAYS} days`}
           count={stats.transit.arrivingSoon}
           group="In transit"
           onPick={pick('arrivingSoon')}
@@ -78,8 +82,15 @@ function Snapshot({ stats, onCommit }) {
       </Group>
 
       <Group title="At rest" count={stats.atRest.total}>
-        <Stat label="Aging" count={stats.atRest.red} tone="red" group="At rest" onPick={pick('red')} />
-        <Stat label="At yard" count={stats.atRest.blue} tone="blue" group="At rest" onPick={pick('blue')} />
+        {/* Named the way ops already talks about them — "a red container", "a blue container".
+            Green keeps its state name because "booked" is the actionable fact about it, and it is
+            the one of the three that says what to do rather than how long it has sat.
+
+            Naming a row by its colour also happens to help rather than hurt here: the word tells
+            you the colour you would otherwise have to see, which is the opposite of encoding
+            meaning in hue alone (§8). */}
+        <Stat label="Red containers" count={stats.atRest.red} tone="red" group="At rest" onPick={pick('red')} />
+        <Stat label="Blue containers" count={stats.atRest.blue} tone="blue" group="At rest" onPick={pick('blue')} />
         <Stat label="Booked" count={stats.atRest.green} tone="green" group="At rest" onPick={pick('green')} />
       </Group>
 
