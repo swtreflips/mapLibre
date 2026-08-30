@@ -504,6 +504,41 @@ the data held exactly 1 — grouping is what made it honest.
   Cards show container no + status chip, shipment/vessel, route, dates, free day and appointment,
   with an items summary; clicking one **expands it in place** for carrier, forwarder, HBL/MBL and
   the item lines.
+- **The header carries a VOYAGE LINE** — `ARRIVING IN 31 DAYS` opposite `ETA 30 Sep` — from
+  `voyagePhase(etd, eta, today)` in [vesselMath.js](src/lib/vesselMath.js). It answers the question
+  the header otherwise left to whoever was reading it: *how soon, or how long ago*. Under 50%
+  elapsed the interesting fact is that it **departed**; at or over 50% it is that it is **arriving**.
+
+  **The fraction is `computeProgress` — the same call that positions the icon** ([MapView.jsx](src/components/MapView.jsx)).
+  Deliberate reuse, not coincidence: a second copy of a rule is how the stats panel and the map came
+  to disagree about `arrived`. One number, or the sentence and the ship end up in different places
+  on the same ocean.
+
+  **OVERDUE IS TESTED BEFORE THE FRACTION, and that ordering is the whole subtlety.**
+  `computeProgress` *clamps to 1*, so once an ETA passes the fraction stops moving and can no longer
+  tell "lands today" from "three weeks late" — only the raw day delta can. Get it backwards and the
+  panel renders `ARRIVING IN -1 DAYS` the first day an ETA slips, which is not a loud failure: it is
+  a confident sentence about exactly the container that needs attention. `overdue` phrasing mirrors
+  the container chips' `Xd past ETA` so the header and the cards beneath it speak the same way.
+
+  **Vessels and rail share it unchanged** — both are a thing travelling between two dates, so it
+  takes the two Dates rather than a holder (a train's are `actual_portdate` →
+  `expected_lastcy_date`). **Ports get no line**: a facility is where boxes stop, not something in
+  transit, and it would need a dwell rule instead. `voyagePhase` returns `null` there, and for any
+  voyage missing a date — `computeProgress` returns 0 for a null input, which would otherwise render
+  a confident `DEPARTED NaN DAYS AGO`.
+
+  **`formatDay` spells the month out rather than calling `toLocaleDateString`.** A pinned `'en-GB'`
+  was tried first, for deterministic day-month order — it renders September as **"Sept"**, four
+  letters where every other month gets three. Locale data is not a fixed target either: Node's ICU
+  and the browser's need not agree, so the app could render what the test never saw. The **year
+  appears only when it differs from today's**, because transits here run to 114 days and a bare
+  "15 Jan" read in August means *last* January.
+
+  Guarded by `npm run test:voyage` ([tools/check-voyage-phase.mjs](tools/check-voyage-phase.mjs)),
+  which exists because **the live fixture cannot reach two of the three branches** — both en-route
+  vessels sat past halfway when this was written, so clicking around the app exercises `arriving`
+  and nothing else.
 - **The chip carries a WORD, not just a tone** (`AGING 83D`, `BOOKED`, `ON WATER`). On the map,
   which arm a container sits in encodes status independently of hue (CARDS.md §2); a flat tray has
   no arms, so the label does that job there. `containerStatus()` in

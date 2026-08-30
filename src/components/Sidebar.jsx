@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { computeStats, SOON_DAYS } from '../lib/stats'
+import { voyagePhase, formatDay } from '../lib/vesselMath'
 import { KIND_LABELS } from '../lib/search'
 import BrandMark from './BrandMark'
 import ContainerCard from './ContainerCard'
@@ -111,6 +112,10 @@ const HOLDER_KIND = { vessel: 'Vessel', rail: 'Rail', port: 'Port' }
 
 function Tray({ holder, matchedIds }) {
   const n = holder.containers.length
+  // Null for a PORT holder, which has no voyage — a facility is where boxes stop, not something
+  // travelling between two dates. Also null for any voyage missing one of its dates, rather than
+  // rendering a confident sentence built on a blank.
+  const voyage = voyagePhase(holder.etd, holder.eta)
   return (
     <section className="panel panel--tray">
       <header className="tray__head">
@@ -125,6 +130,15 @@ function Tray({ holder, matchedIds }) {
             {n} container{n === 1 ? '' : 's'}
           </span>
         </p>
+        {/* THE ETA SHOWS IN EVERY PHASE, including "departed". The phrase answers how soon, the
+            date answers on what day, and the whole point of this line is that neither should cost
+            anyone a calculation. */}
+        {voyage && (
+          <p className="tray__voyage" data-phase={voyage.phase}>
+            <span className="tray__phase">{voyage.label}</span>
+            <span className="tray__eta">ETA {formatDay(holder.eta)}</span>
+          </p>
+        )}
       </header>
       <div className="tray__list">
         {/* SELECTION WINS OVER THE FILTER: a holder shows everything it holds, filtered or not,

@@ -154,6 +154,43 @@
   color: rgb(var(--c-harbor-800));
 }
 
+/* The voyage line — how soon it arrives, or how long ago it left.
+   Ruled off from the identity above it because it answers a different question: the lines above
+   name WHICH holder this is, this one says WHERE IT IS IN ITS JOURNEY. */
+.tray__voyage {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 9px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid rgb(var(--c-fog-200));
+}
+
+.tray__phase {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500; /* DM Mono loads 400/500 only — see ContainerCard.css */
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgb(var(--c-harbor-800));
+}
+
+/* An ETA that has already passed with no arrival reported. The same red the card chips and the
+   stat dots use (#c0392b), and the same rule: the WORD carries the meaning — "PAST ETA" reads
+   without any colour at all — so the tone only reinforces it (CLAUDE.md §8). */
+.tray__voyage[data-phase='overdue'] .tray__phase {
+  color: #c0392b;
+}
+
+.tray__eta {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: rgb(var(--c-fog-500));
+}
+
 .tray__list {
   flex: 1;
   min-height: 0; /* without this the flex child refuses to shrink and the panel scrolls instead */

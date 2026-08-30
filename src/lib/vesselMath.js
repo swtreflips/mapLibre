@@ -227,6 +227,79 @@ export function containerStatus(s, today = new Date()) {
   return { tone: 'blue', label: days === 0 ? 'LANDED TODAY' : `AT YARD ${days}D`, detail: '' }
 }
 
+// ── The voyage line ───────────────────────────────────────────────────────────────────
+//
+// How soon a holder arrives, or how long ago it left. This is the question the tray header exists
+// to answer, and the one nobody should have to do arithmetic against today's date for — every time
+// they look.
+//
+// Takes the two DATES rather than a holder, so vessels and trains share it unchanged. Both are the
+// same problem — a thing travelling between two dates — and neither caller has to know which
+// columns fed them (a vessel's are actual_shipping -> expected_portdate, a train's are
+// actual_portdate -> expected_lastcy_date).
+//
+// THE FRACTION IS computeProgress, the SAME call MapView makes to position the icon. That is
+// deliberate reuse, not a coincidence: a second copy of the rule is exactly how the stats panel and
+// the map came to disagree about `arrived` (CLAUDE.md §8). One number, or the sentence and the ship
+// end up in different places on the same ocean.
+//
+// OVERDUE IS TESTED BEFORE THE FRACTION, and that ordering is the whole subtlety of this function.
+// computeProgress CLAMPS to 1, so once the ETA passes the fraction stops moving and can no longer
+// tell "lands today" from "three weeks late". Only the raw day delta knows, so it decides first.
+// Without that, the panel renders "ARRIVING IN -1 DAYS" the day after any ETA slips — and an ETA
+// slipping silently is the exception this dashboard exists to surface.
+const plural = (n) => (n === 1 ? 'DAY' : 'DAYS')
+
+// Zero gets its own wording. "ARRIVING IN 0 DAYS" is not something a person says, and it is live in
+// the fixture rather than hypothetical.
+function phraseFor(phase, days) {
+  if (phase === 'overdue') return `${days} ${plural(days)} PAST ETA`
+  if (phase === 'arriving') return days === 0 ? 'ARRIVING TODAY' : `ARRIVING IN ${days} ${plural(days)}`
+  return days === 0 ? 'DEPARTED TODAY' : `DEPARTED ${days} ${plural(days)} AGO`
+}
+
+/**
+ * @returns {{phase: 'departed'|'arriving'|'overdue', days: number, label: string,
+ *   progress: number} | null} null when either date is missing — computeProgress returns 0 for a
+ *   null input, which would otherwise render a confident "DEPARTED NaN DAYS AGO". A port holder
+ *   has no voyage at all, so it takes this path every time.
+ */
+export function voyagePhase(etd, eta, today = new Date()) {
+  if (!etd || !eta) return null
+  const mid = midnight(today)
+  const daysTo = Math.floor((eta - mid) / DAY)
+  const daysSince = Math.floor((mid - etd) / DAY)
+  const progress = computeProgress(etd, eta, today)
+
+  // Exactly half counts as arriving, so the boundary is decided rather than left to a float.
+  const phase = daysTo < 0 ? 'overdue' : progress >= 0.5 ? 'arriving' : 'departed'
+  const days = phase === 'overdue' ? -daysTo : phase === 'arriving' ? daysTo : daysSince
+  return { phase, days, progress, label: phraseFor(phase, days) }
+}
+
+// "30 Sep", or "30 Sep 2027" when the year is not the current one.
+//
+// THE YEAR IS NOT DECORATION. Transits in this data run to 114 days, so a cross-year ETA is
+// ordinary — and a bare "15 Jan" read on 30 Aug 2026 reads as LAST January, so the date would say
+// the opposite of what it means.
+//
+// SPELLED OUT RATHER THAN LOCALE-FORMATTED, and that is not reinventing a wheel. toLocaleDateString
+// with a pinned 'en-GB' was tried first, for deterministic day-month order; en-GB renders September
+// as "Sept" — four letters where every other month gets three, so the column jitters. Locale data
+// is not a fixed target either: Node's ICU build and the browser's need not agree, and a difference
+// would show up as the app rendering something the test never saw. Twelve strings cannot surprise
+// anyone.
+//
+// Reads the LOCAL components of a local-midnight parseYMD date, so it cannot shift the day the way
+// toISOString would (CLAUDE.md §4).
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+export function formatDay(d, today = new Date()) {
+  if (!d) return ''
+  const base = `${d.getDate()} ${MONTHS[d.getMonth()]}`
+  return d.getFullYear() === today.getFullYear() ? base : `${base} ${d.getFullYear()}`
+}
+
 // Where a container is in its journey (CLAUDE.md §7). Today defaults to now's local midnight.
 //
 //   future    not sailed yet
