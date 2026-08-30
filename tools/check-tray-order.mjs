@@ -1,11 +1,20 @@
-// Regression test for sortByPriority — the order of a PORT tray.
+// Regression test for sortByPriority — the order of a PORT tray and of SEARCH RESULTS.
 //
 //   npm run test:order
 //
-// WHY THIS EXISTS. A port tray is a worklist, not a manifest: everything in it has stopped moving,
-// and the order is the answer to "what do I clear next". Red first, then blue, then green, and
-// within each colour the longest-sitting box first — the one that is both most expensive and most
-// likely to have been forgotten.
+// WHY THIS EXISTS. A list of containers is a worklist, not a manifest, and the order answers "what
+// do I deal with next". Five bands: red, blue, green (at a yard), then everything in motion by
+// soonest arrival, then what has not sailed. Within a yard band the longest-sitting box comes
+// first — both the most expensive and the most likely to have been forgotten.
+//
+// ONE FUNCTION SERVES BOTH PANELS on purpose: a container has one place in the queue, and it must
+// not depend on which panel you found it through. A port tray only ever shows the first three
+// bands, so the moving and future bands are exercised only through search — and only here.
+//
+// THE BAND ORDER IS THE TRAP. containerStatus returns tone `blue` for an en-route or on-rail
+// container too, so ranking on tone alone files every ship under "blue containers at a yard". That
+// is invisible in a port tray, where everything is arrived, and wrong the moment a search returns a
+// mixed list. The band comes from shipmentState first, and only then the tone.
 //
 // AND A WRONG ORDER IS INVISIBLE. Every row still shows the right container with the right chip and
 // the right dwell; only their sequence is wrong, so the panel looks entirely correct while quietly
@@ -20,9 +29,8 @@
 import { pathToFileURL } from 'url'
 
 const ROOT = pathToFileURL(process.cwd() + '/').href
-const { sortByPriority, containerStatus, daysAtCY } = await import(
-  new URL('src/lib/vesselMath.js', ROOT).href
-)
+const { sortByPriority, containerStatus, daysAtCY, shipmentState, normalizeKey, currentFacility, canonicalPort } =
+  await import(new URL('src/lib/vesselMath.js', ROOT).href)
 
 const TODAY = new Date(2026, 7, 30) // 2026-08-30, local midnight
 
@@ -164,12 +172,120 @@ check(
   'RED-10D INLAND',
 )
 
+// ── Mixed states: what a SEARCH returns ────────────────────────────────────────────────
+//
+// A port tray holds only arrived containers, so bands 3 and 4 exist solely for search results.
+console.log('\nmixed states — the search-result bands\n')
+
+// A container still on the water. `enroute` = sailed, not yet arrived.
+const sailing = (shipment, eta, etd = '2026-01-01') => ({
+  ...box(shipment, eta),
+  actual_shipping: etd,
+  expected_portdate: eta,
+  actual_portdate: '',
+})
+
+// Not sailed yet: ETD in the future.
+const notSailed = (shipment, etd) => ({
+  ...box(shipment, '2099-01-01'),
+  actual_shipping: etd,
+  expected_portdate: '2099-01-01',
+  actual_portdate: '',
+})
+
+// On a train: landed at the port, inland yard date still ahead.
+const onRail = (shipment, cyDate) => ({
+  ...box(shipment, '2026-08-01'),
+  port_of_discharge: 'Los Angeles, CA',
+  Lastcy: 'Denver, CO',
+  sea_route: 'Bangkok, Thailand - Los Angeles, CA',
+  rail_route: 'Los Angeles, CA - Denver, CO',
+  actual_portdate: '2026-08-01',
+  expected_lastcy_date: cyDate,
+})
+
+// The states really are what the cases below assume.
+check('sailing box is enroute', shipmentState(sailing('x', '2026-09-10'), TODAY), 'enroute')
+check('rail box is rail', shipmentState(onRail('x', '2026-09-05'), TODAY), 'rail')
+check('unsailed box is future', shipmentState(notSailed('x', '2026-09-20'), TODAY), 'future')
+
+check(
+  'yard containers come before anything moving',
+  order([sailing('SAILING', '2026-09-10'), box('GREEN', '2026-08-01', '2026-09-02'), box('RED', '2026-08-10')]),
+  'RED GREEN SAILING',
+)
+check(
+  'even a GREEN yard box outranks a ship arriving tomorrow',
+  order([sailing('SHIP-1D', '2026-08-31'), box('GREEN', '2026-08-01', '2026-09-02')]),
+  'GREEN SHIP-1D',
+)
+check(
+  'ships sort SOONEST ARRIVAL first',
+  order([sailing('DEC', '2026-12-01'), sailing('SEP', '2026-09-02'), sailing('OCT', '2026-10-15')]),
+  'SEP OCT DEC',
+)
+
+// Rail and sea share one band, ranked on the one axis that matters: when the box lands.
+check(
+  'a train arriving sooner outranks a ship arriving later',
+  order([sailing('SHIP-DEC', '2026-12-01'), onRail('RAIL-SEP', '2026-09-03')]),
+  'RAIL-SEP SHIP-DEC',
+)
+check(
+  'and a ship arriving sooner outranks a train arriving later',
+  order([onRail('RAIL-DEC', '2026-12-01'), sailing('SHIP-SEP', '2026-09-03')]),
+  'SHIP-SEP RAIL-DEC',
+)
+
+check(
+  'not-sailed sorts LAST, however soon it is due',
+  order([notSailed('FUTURE-TOMORROW', '2026-08-31'), sailing('SHIP-DEC', '2026-12-01')]),
+  'SHIP-DEC FUTURE-TOMORROW',
+)
+check(
+  'and within future, soonest departure first',
+  order([notSailed('F-NOV', '2026-11-01'), notSailed('F-SEP', '2026-09-05')]),
+  'F-SEP F-NOV',
+)
+
+check(
+  'all five bands at once',
+  order([
+    notSailed('5-FUTURE', '2026-09-20'),
+    sailing('4-SHIP', '2026-10-01'),
+    box('3-GREEN', '2026-08-01', '2026-09-02'),
+    box('2-BLUE', '2026-08-28'),
+    box('1-RED', '2026-08-10'),
+  ]),
+  '1-RED 2-BLUE 3-GREEN 4-SHIP 5-FUTURE',
+)
+
+// A blank date is not an imminent arrival. It sorts to the bottom of its band, not the top.
+check(
+  'a mover with no ETA sinks within its band',
+  order([{ ...sailing('NO-ETA', '2026-09-10'), expected_portdate: '' }, sailing('HAS-ETA', '2026-12-01')]),
+  'HAS-ETA NO-ETA',
+)
+
+// ── The port tray is UNCHANGED by any of the above ─────────────────────────────────────
+//
+// Everything a port holds is `arrived`, so it lands in bands 0-2 and the extra bands never apply.
+// This is the regression that matters: widening the function for search must not reorder a tray.
+console.log('\nport trays are unaffected by the new bands\n')
+check(
+  'red, blue, green — exactly as before',
+  order([box('G', '2026-08-01', '2026-09-02'), box('B', '2026-08-28'), box('R', '2026-08-10')]),
+  'R B G',
+)
+check(
+  'dwell order inside a band — exactly as before',
+  order([box('R-4', '2026-08-26'), box('R-40', '2026-07-21'), box('R-10', '2026-08-20')]),
+  'R-40 R-10 R-4',
+)
+
 // ── The live fixture ───────────────────────────────────────────────────────────────────
 console.log('\nthe live fixture, as the tray will render it\n')
 const { default: shipments } = await import(new URL('src/data/inboundShipments.js', ROOT).href)
-const { normalizeKey, shipmentState, currentFacility, canonicalPort } = await import(
-  new URL('src/lib/vesselMath.js', ROOT).href
-)
 const byPort = new Map()
 for (const s of shipments) {
   if (shipmentState(s) !== 'arrived') continue

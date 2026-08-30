@@ -311,46 +311,88 @@ export function formatDay(d, today = new Date()) {
   return d.getFullYear() === today.getFullYear() ? base : `${base} ${d.getFullYear()}`
 }
 
-// ── The port tray is a WORKLIST, so it is ordered by PRIORITY, not by id ──────────────
+// ── A LIST OF CONTAINERS IS A WORKLIST, so it is ordered by priority, not by id ────────
 //
-// A vessel tray is a manifest: everything in it is in the same situation, at sea, and the id
-// order it arrives in is as good as any. A PORT tray is not. Everything in it has stopped
-// moving, and the only question worth answering is which box to deal with first.
+// Used by the port tray and by search results, which is the point: a container has one place
+// in the queue, and it should not depend on which panel you found it through.
 //
-// RED, THEN BLUE, THEN GREEN — the order they cost something. Red is aging past its free
-// time and may already be accruing demurrage; blue is sitting but not yet late; green has an
-// appointment booked and is, for now, handled. Within each colour, LONGEST DWELL FIRST: the
-// box that has sat longest is both the most expensive and the most likely to be forgotten.
+// FIVE BANDS, in the order they need you:
 //
-// THE TONES COME FROM containerStatus, never from a rule written here. It is the same call
-// the tray chip and the map card make, so a row at the top of this list is red in all three
-// places. A second copy of "which containers are aging" is exactly how the stats panel and
-// the map drifted apart once already (CLAUDE.md §8).
-const TONE_RANK = { red: 0, blue: 1, green: 2 }
+//   0  red      at a yard, past its free time, possibly accruing demurrage
+//   1  blue     at a yard, sitting but not yet late
+//   2  green    at a yard with an appointment booked — handled, for now
+//   3  moving   on a ship or a train, soonest arrival first
+//   4  future   not sailed yet; nothing to do but know it exists
+//
+// Within a yard band, LONGEST DWELL FIRST — the box that has sat longest is both the most
+// expensive and the most likely to have been forgotten. Within `moving`, SOONEST ARRIVAL
+// first. Within `future`, soonest departure.
+//
+// THE BAND COMES FROM shipmentState, AND ONLY THEN THE TONE FROM containerStatus. That order
+// matters and is easy to get wrong: containerStatus returns tone `blue` for an en-route or
+// on-rail container too, so ranking on tone alone files every ship under "blue containers at a
+// yard" — invisible in a port tray, where everything is arrived, and wrong the moment a search
+// returns a mixed list.
+//
+// Neither rule is written out here. Both come from the same functions the chip, the map card
+// and the Overview counts use — a second copy of "which containers are aging" is exactly how
+// the stats panel and the map drifted apart once already (CLAUDE.md §8).
+const YARD_RANK = { red: 0, blue: 1, green: 2 }
+const BAND_MOVING = 3
+const BAND_FUTURE = 4
+
+// One ascending number per container, so the comparator stays a plain subtraction. Dwell is
+// NEGATED because it is the one key that runs the other way.
+function priorityKey(s, today) {
+  const state = shipmentState(s, today)
+
+  if (state === 'arrived') {
+    return {
+      band: YARD_RANK[containerStatus(s, today).tone] ?? BAND_FUTURE,
+      // Dwell at the facility the box is ACTUALLY in. arrivedAtFacility handles the inland
+      // case, so a box that cleared its seaport in June counts from the day it reached its
+      // yard, not from June (CLAUDE.md §7).
+      order: -(daysAtCY(s, today) ?? 0),
+    }
+  }
+
+  // Not sailed: furthest from needing anything, so it sits below everything in motion however
+  // soon it is due.
+  if (state === 'future') {
+    return { band: BAND_FUTURE, order: parseYMD(s.actual_shipping)?.getTime() ?? Infinity }
+  }
+
+  // ON A SHIP OR ON A TRAIN, ranked together on ONE axis: when does this box actually land.
+  // A rail leg arriving in two days is more imminent than a ship four weeks out, and keeping
+  // them in separate bands would have said otherwise.
+  //
+  // finalYardEta, not expected_portdate. For a port-delivered container the two are the same
+  // date, so this is exactly "whichever vessel arrives first"; for an intermodal one it is the
+  // inland CY date, which is when the box is really available. It is also the date the
+  // Overview's "Arriving next 7 days" row counts, so the list and the count agree.
+  //
+  // A missing date sorts to the BOTTOM of the band rather than the top: Infinity, not 0. A
+  // blank is not an imminent arrival, and treating it as one would put the least-known
+  // containers above everything.
+  return { band: BAND_MOVING, order: finalYardEta(s)?.getTime() ?? Infinity }
+}
 
 /**
  * @returns {object[]} a NEW array — the caller's is not mutated, because holders are shared
  *   with the map and re-ordering one in place would reach further than the panel that asked.
  */
 export function sortByPriority(containers, today = new Date()) {
-  // Decorated rather than compared in place: containerStatus builds a label string on every
-  // call and a comparator runs O(n log n) times. Cheap either way at these counts, but it also
-  // puts both sort keys somewhere you can read them.
+  // Decorated rather than compared in place: the key functions build label strings and parse
+  // dates on every call, and a comparator runs O(n log n) times. Cheap either way at these
+  // counts, but it also puts both sort keys somewhere you can read them.
   return (containers ?? [])
-    .map((s) => ({
-      s,
-      rank: TONE_RANK[containerStatus(s, today).tone] ?? 99,
-      // Dwell at the facility the box is ACTUALLY in. arrivedAtFacility handles the inland
-      // case, so a box that cleared its seaport in June counts from the day it reached its
-      // yard, not from June (CLAUDE.md §7).
-      days: daysAtCY(s, today) ?? 0,
-    }))
+    .map((s) => ({ s, ...priorityKey(s, today) }))
     .sort(
       (a, b) =>
-        a.rank - b.rank ||
-        b.days - a.days ||
-        // Last resort, and it is what keeps the list STABLE: two boxes the same colour that
-        // landed the same day would otherwise be free to swap rows on every refresh.
+        a.band - b.band ||
+        a.order - b.order ||
+        // Last resort, and it is what keeps the list STABLE: two boxes in the same band with
+        // the same date would otherwise be free to swap rows on every refresh.
         (a.s.shipment < b.s.shipment ? -1 : a.s.shipment > b.s.shipment ? 1 : 0),
     )
     .map((d) => d.s)

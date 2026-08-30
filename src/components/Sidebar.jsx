@@ -189,8 +189,14 @@ function FilterBar({ filter, count, onClear }) {
 }
 
 function Results({ shipments, matchedIds, filter, onClear }) {
+  // THE SAME ORDER A PORT TRAY USES, and deliberately the same function. A search can return
+  // containers in every state at once, so this is where the full band order shows: the yard
+  // colours first, then everything in motion by soonest arrival, then what has not sailed.
+  //
+  // A container has one place in the queue; which panel you found it through should not change
+  // it. Sorting results by relevance or by id would have given the same box two answers.
   const hits = useMemo(
-    () => shipments.filter((s) => matchedIds.has(s.shipment)),
+    () => sortByPriority(shipments.filter((s) => matchedIds.has(s.shipment))),
     [shipments, matchedIds],
   )
 
