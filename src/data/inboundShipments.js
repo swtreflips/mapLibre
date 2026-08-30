@@ -41,8 +41,8 @@ const inboundShipments = [
     port_of_discharge: 'New York, NY',
     Lastcy: 'New York, NY',
     route: 'Cartagena, Colombia - New York, NY',
-    actual_shipping: '2026-06-08',
-    expected_portdate: '2026-09-01',
+    actual_shipping: daysAgo(83),
+    expected_portdate: daysAhead(31),
     actual_portdate: '',
     appointment_date: '',
     arrival_notice: 'no',
@@ -204,9 +204,17 @@ const inboundShipments = [
   // tray has something to show. Every en-route vessel held exactly one container while the map's
   // count badge claimed 7 — see CLAUDE.md §8.
   //
-  // Same vessel AND same route is what makes the three one holder. Their dates must also track
-  // INBSHIP3904's, because a ship is in one place: if these drift apart, holders.js positions the
-  // vessel at the LATEST of them and logs the disagreement, which is the warning you will see.
+  // WHAT MAKES THESE THREE ONE VOYAGE: same vessel name, same actual_shipping, same
+  // expected_portdate. All three, or holders.js gives the odd one out its own hull — the rule is
+  // vessel + ETD + ETA, and neither a shared route nor a shared name will substitute for a date.
+  //
+  // They previously carried ETAs a month apart (2026-09-01 and 2026-09-30) while claiming to be
+  // one voyage, and that claim is what the "3 containers" badge was really counting. Under the
+  // current rule those dates would draw CAUTIN twice, in two places — the honest picture of them.
+  //
+  // RELATIVE, not hardcoded, for the reason at the top of this file: an absolute date silently
+  // changes what the fixture demonstrates once the clock moves past it. daysAgo(83) ->
+  // daysAhead(31) pins this voyage at 73% elapsed — the only mid-ocean vessel here — for good.
   {
     shipment: 'INBSHIP3951',
     container: 'HLBU2201884',
@@ -220,8 +228,8 @@ const inboundShipments = [
     port_of_discharge: 'New York, NY',
     Lastcy: 'New York, NY',
     route: 'Cartagena, Colombia - New York, NY',
-    actual_shipping: '2026-06-08',
-    expected_portdate: '2026-09-30', // tracks INBSHIP3904 — same voyage
+    actual_shipping: daysAgo(83),
+    expected_portdate: daysAhead(31), // one voyage with 3904/3952 — vessel + ETD + ETA all match
     actual_portdate: '',
     appointment_date: '',
     arrival_notice: 'no',
@@ -244,8 +252,8 @@ const inboundShipments = [
     port_of_discharge: 'New York, NY',
     Lastcy: 'New York, NY',
     route: 'Cartagena, Colombia - New York, NY',
-    actual_shipping: '2026-06-08',
-    expected_portdate: '2026-09-01', // tracks INBSHIP3904 — same voyage
+    actual_shipping: daysAgo(83),
+    expected_portdate: daysAhead(31), // one voyage with 3904/3951 — vessel + ETD + ETA all match
     actual_portdate: '',
     appointment_date: '',
     arrival_notice: 'yes',

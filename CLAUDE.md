@@ -474,7 +474,7 @@ Clicking either fills the sidebar with a **tray** — one card per container it 
 
 | holder | grouped by | anchored at |
 |---|---|---|
-| vessel | `vessel + route` — a **voyage**, not a name; one ship sails many lanes and the route supplies the polyline | interpolated position (§5.1) |
+| vessel | `vessel + ETD + ETA` — a **voyage**, not a name (see below) | interpolated position (§5.1) |
 | port | `port_of_discharge` | the port's own coordinate (§5.4) |
 
 **Two-port complexes merge into one card.** `PORT_ALIASES` in [places.js](src/data/places.js) folds
@@ -488,9 +488,36 @@ card keyed on Los Angeles otherwise.
 every container card in the tray still names the port its box is actually at. The alias VALUE must
 be a real `us_ports` row or the merged card has nothing to anchor to.
 
-**One ETA per voyage.** Rows on the same vessel+route can disagree; a ship is in one place, so the
-group takes the **latest** `expected_portdate` (a container cannot arrive before its ship) and the
-DEV log names the disagreement rather than hiding it.
+**A VOYAGE IS `vessel + actual_shipping + expected_portdate`.** All three, or the container gets its
+own hull. Same ship on different dates is a different sailing, and nothing about a shared name or a
+shared lane substitutes for a date.
+
+This replaced `vessel + route`, which grouped on the LANE — so every container Cartagena → New York
+aboard a "CAUTIN" was asserted to be on one hull whatever its dates said. The fixture had three such
+containers with ETAs a month apart, and **that assertion was what the "3 containers" badge counted**.
+The grouping was fabricated to give the badge a number bigger than 1.
+
+**The dates are compared as RAW STRINGS.** They are the same `YYYY-MM-DD` field from the same feed,
+so equal voyages give equal keys; parsing first would only add a way for two identical strings to
+disagree.
+
+**A blank vessel name or a missing date falls back to the shipment id**, so those rows stand alone.
+Both are the rule being honest rather than exceptions to it: unnamed rows would otherwise collapse
+into one ghost ship, and two unknown dates are not the same date — grouping on them would put
+containers on a hull because of what the feed failed to say.
+
+**This deleted `voyageEta` / `voyageEtd` / `etaDisagreements`.** Those existed to reconcile a group
+that could legitimately disagree — it took the latest `expected_portdate` and logged the conflict.
+The dates are now two thirds of the key, so a group *cannot* disagree with itself, and the holder
+reads its dates off `containers[0]` exactly as the rail branch always did. **The disagreement did
+not vanish, it moved:** it now shows as one ship name standing in two places, which `vesselSplits`
+reports to the DEV log. Often that is simply true — a ship really does sail many voyages.
+
+**The one silent wrong answer this can give is a MIXED LANE.** Route is deliberately not in the key,
+so one voyage could carry containers booked on two lanes; only one polyline can position the icon,
+so the rest would be drawn on a route their containers did not take. The holder therefore carries
+`lanes` (every distinct lane in the group) and MapView **warns** when it is longer than 1 — louder
+than the split log, because a split is usually true whereas this is always a fault.
 
 **One feature per holder**, so a vessel carrying three containers is one icon whose badge reads 3.
 That badge was a hardcoded `MOCK_CONTAINER_COUNT = 7` for several iterations while every vessel in

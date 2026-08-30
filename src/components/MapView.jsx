@@ -14,7 +14,7 @@ import { buildBasemapStyle, mapPalette, FONT_REGULAR, FONT_BOLD } from '../map/b
 import { placesFC, buildPlacesFC, portPointsByKey, FIRST_LABEL_ZOOM } from '../data/places'
 import { portCardSvg, portCardLabel, portBubbleSvg, bubbleRadius, DIM_OPACITY } from '../map/portCard'
 import { relaxOverlaps } from '../map/declutter'
-import { buildHolders, etaDisagreements } from '../lib/holders'
+import { buildHolders, vesselSplits } from '../lib/holders'
 import { useUsPorts } from '../hooks/useUsPorts'
 import { useLoadingPorts } from '../hooks/useLoadingPorts'
 import { useRailRoutes } from '../hooks/useRailRoute'
@@ -944,12 +944,27 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
           `[MapView] ${shipFC.features.length} vessel holders, ${ports.length} port cards (${boxes} containers)` +
             (adrift.length ? ` — ${adrift.length} not matched to a port row: ${adrift.join(', ')}` : ''),
         )
-        // Containers on one voyage carrying different ETAs. The vessel is drawn at the latest of
-        // them (holders.js), so this is a data fault being resolved, not lost — say so.
-        for (const d of etaDisagreements([...byId.values()].map((e) => e.holder).filter((h) => h.kind === 'vessel'))) {
-          console.warn(
-            `[MapView] ${d.vessel} (${d.route}) carries containers with different ETAs ` +
-              `(${d.dates.join(', ')}); positioned at the latest.`,
+        // One ship name drawn in more than one place. Containers group by vessel + ETD + ETA
+        // (holders.js), so a name appearing twice means two sailings — which is often simply true,
+        // and is worth naming either way because the map is showing the same ship twice.
+        // A voyage carrying containers booked on two different lanes. Only one polyline can
+        // position the icon, so the others are drawn on a route they are not on — the single
+        // silent wrong answer vessel + ETD + ETA can produce. Louder than the split log below,
+        // because a split is usually just true whereas this is always a data fault.
+        for (const h of [...byId.values()].map((e) => e.holder)) {
+          if (h.kind === "vessel" && h.lanes?.length > 1) {
+            console.warn(
+              `[MapView] ${h.name} (${h.containers[0].actual_shipping}->` +
+                `${h.containers[0].expected_portdate}) mixes ${h.lanes.length} lanes ` +
+                `(${h.lanes.join(" | ")}); all ${h.containers.length} containers are drawn on ` +
+                `${h.subtitle}.`,
+            )
+          }
+        }
+        for (const d of vesselSplits([...byId.values()].map((e) => e.holder).filter((h) => h.kind === 'vessel'))) {
+          console.info(
+            `[MapView] ${d.vessel} is ${d.voyages.length} separate voyages: ` +
+              d.voyages.map((v) => `${v.route} ${v.etd}->${v.eta} (${v.containers})`).join(' | '),
           )
         }
       }

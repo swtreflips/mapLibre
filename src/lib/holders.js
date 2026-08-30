@@ -28,6 +28,21 @@ const seaLane = (s) => s.sea_route ?? s.route
 // across refreshes, rather than shuffling when the data reloads.
 const byShipment = (a, b) => (a.shipment < b.shipment ? -1 : a.shipment > b.shipment ? 1 : 0)
 
+// THE VOYAGE a container is aboard: one hull, one departure, one arrival. Containers group only
+// when all three agree.
+//
+// Two ways out into a holder of one, and both are the rule being honest rather than exceptions to
+// it. A blank VESSEL NAME cannot be shared — every unnamed row would otherwise collapse into a
+// single ghost ship on whatever dates they happened to have in common. And a MISSING DATE is not a
+// value two rows can match on: two unknowns are not the same unknown, and treating them as one
+// would put containers on a hull because of what the feed failed to say about them.
+//
+// Falling back to the shipment id makes those rows individually keyed, so they stand alone.
+const voyageKey = (s) =>
+  s.vessel?.trim() && s.actual_shipping && s.expected_portdate
+    ? `${normalizeKey(s.vessel)}|${s.actual_shipping}|${s.expected_portdate}`
+    : `solo|${s.shipment}`
+
 /**
  * @param {object[]} shipments
  * @param {Map<string, number[][]>} routesByKey  normalized "POL - POD" -> coordinates
@@ -83,12 +98,23 @@ export function buildHolders(shipments, routesByKey, portPoints, railByKey) {
 
     if (state !== 'enroute') continue
 
-    // KEYED ON VESSEL + ROUTE, not vessel alone. One ship sails many lanes over a season, and the
-    // route is also what supplies the polyline the group is positioned along — so a vessel serving
-    // two lanes is genuinely two holders, in two places.
+    // KEYED ON VESSEL + ETD + ETA — a VOYAGE, not a ship and not a lane.
+    //
+    // Containers ride the same hull only if all three match. Same ship on different dates is a
+    // different sailing, and anything that fails to match gets its own holder rather than being
+    // folded in on the strength of the name alone.
+    //
+    // This replaced vessel + route, which grouped on the LANE and so quietly asserted that every
+    // container Cartagena -> New York on a ship called CAUTIN was aboard the same hull, whatever
+    // their dates said. That is how the fixture came to hold a "3 containers" badge over rows whose
+    // ETAs were a month apart — the number was real, the voyage behind it was not.
+    //
+    // The dates are compared as RAW STRINGS, deliberately: they are the same "YYYY-MM-DD" field
+    // from the same feed, so equal voyages give equal keys, and parsing first would only add a way
+    // for two identical strings to disagree.
     const coords = routesByKey?.get(normalizeKey(seaLane(s)))
     if (!coords || coords.length < 2) continue
-    const key = `${normalizeKey(s.vessel)}|${normalizeKey(seaLane(s))}`
+    const key = voyageKey(s)
     if (!vessels.has(key)) {
       vessels.set(key, { key, name: s.vessel, route: seaLane(s), coords, containers: [] })
     }
@@ -104,10 +130,20 @@ export function buildHolders(shipments, routesByKey, portPoints, railByKey) {
         name: v.name || '(unnamed vessel)',
         subtitle: v.route,
         coords: v.coords,
-        // ONE ETA FOR THE GROUP. Containers on the same ship arrive together, so rows that
-        // disagree are stale, not two positions — see voyageEta.
-        eta: voyageEta(v.containers),
-        etd: voyageEtd(v.containers),
+        // EVERY lane in the group, not just the one it is drawn on. Route is deliberately
+        // not part of the key — the rule is vessel + ETD + ETA — so a hull sailing one
+        // voyage can in principle arrive here carrying containers booked on two different
+        // lanes. Only one polyline can position the icon, so the rest would be plotted on a
+        // route their containers did not take. That is the one silent wrong answer this
+        // grouping can give, so the group carries the evidence and the DEV log names it.
+        lanes: [...new Set(v.containers.map(seaLane).filter(Boolean))],
+        // Every container here shares both dates BY CONSTRUCTION — they are two thirds of the
+        // grouping key — so the first row's are the group's. This used to be voyageEta/voyageEtd,
+        // which took the latest and earliest across a group that could legitimately disagree;
+        // grouping on the dates means it no longer can, and the same reconciliation the rail
+        // branch does below now applies here.
+        etd: parseYMD(v.containers[0]?.actual_shipping),
+        eta: parseYMD(v.containers[0]?.expected_portdate),
         containers: v.containers,
       }
     }),
@@ -153,38 +189,37 @@ export function buildHolders(shipments, routesByKey, portPoints, railByKey) {
   }
 }
 
-// The group's arrival date. Rows on one vessel+route can carry different expected_portdate values
-// — they do in the current fixtures — but a ship is in one place, so the group needs one date.
+// The same VESSEL NAME appearing as more than one holder. Not used to decide anything — it is
+// what the DEV log reports.
 //
-// Takes the LATEST. A container cannot arrive before its ship does, so the furthest-out date is
-// the only one consistent with every row in the group; picking the first row silently would just
-// hide the disagreement.
-export function voyageEta(containers) {
-  let best = null
-  for (const c of containers) {
-    const d = parseYMD(c.expected_portdate)
-    if (d && (!best || d > best)) best = d
-  }
-  return best
-}
-
-// Earliest departure in the group, for the same reason in reverse: the ship sailed once.
-export function voyageEtd(containers) {
-  let best = null
-  for (const c of containers) {
-    const d = parseYMD(c.actual_shipping)
-    if (d && (!best || d < best)) best = d
-  }
-  return best
-}
-
-// Containers on one voyage whose dates disagree. Not used to decide anything — it is what the DEV
-// log reports, so a data fault surfaces instead of being quietly averaged away.
-export function etaDisagreements(vesselHolders) {
-  const out = []
+// This replaced etaDisagreements, and the swap is the whole shape of the grouping change.
+// Disagreeing dates inside one group used to be possible, so they had to be detected and resolved
+// (the vessel was drawn at the latest of them). Now the dates ARE the key, so a group cannot
+// disagree with itself — the disagreement did not disappear, it moved: it shows up as one ship
+// name standing in two places, which is both more honest and much easier to see on the map.
+//
+// Often it is not a fault at all. A ship really does sail many voyages, and INBSHIP3893 /
+// INBSHIP3894 are two genuine WAN HAI 272 sailings to different coasts. The log says what happened
+// and leaves the judgement to whoever reads it.
+export function vesselSplits(vesselHolders) {
+  const byName = new Map()
   for (const v of vesselHolders) {
-    const dates = new Set(v.containers.map((c) => c.expected_portdate).filter(Boolean))
-    if (dates.size > 1) out.push({ vessel: v.name, route: v.subtitle, dates: [...dates] })
+    const n = normalizeKey(v.name)
+    if (!byName.has(n)) byName.set(n, [])
+    byName.get(n).push(v)
+  }
+  const out = []
+  for (const [, group] of byName) {
+    if (group.length < 2) continue
+    out.push({
+      vessel: group[0].name,
+      voyages: group.map((v) => ({
+        route: v.subtitle,
+        containers: v.containers.length,
+        etd: v.containers[0]?.actual_shipping || '—',
+        eta: v.containers[0]?.expected_portdate || '—',
+      })),
+    })
   }
   return out
 }
