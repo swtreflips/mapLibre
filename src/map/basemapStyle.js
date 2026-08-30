@@ -70,7 +70,7 @@ const GOOGLEISH = {
   // is what makes sharing a silhouette safe for a colour-blind reader. Perfectly neutral (R=G=B),
   // like the contour above and for the same reason. Must match the rail variant's fill in
   // tools/build-icons.mjs: the bake has its own literal, so the two are kept in step by hand.
-  railInk: '#2F2F2F',
+  railInk: '#4A4A4A',
 }
 
 // Resolved once per call so the map re-reads the skin whenever the style is rebuilt.

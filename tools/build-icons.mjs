@@ -73,16 +73,20 @@ const VARIANTS = {
   VESSEL: [
     { file: 'nauticalDefault2.png', fill: '#FFC220', stroke: '#086A08', note: 'arrival_notice != yes' },
     { file: 'nauticalGreen2.png', fill: '#23B14D', stroke: '#086A08', note: 'arrival_notice = yes' },
-    // RAIL. Same hull, near-black, and the only variant whose STROKE is not the family green:
-    // #086A08 on a near-black fill is two dark values a hair apart, so the contour would simply
-    // vanish. White inverts it and keeps a hard edge against everything the marker crosses — pale
-    // land, blue water, the port cards, and its own dark track dashes.
+    // RAIL. Same hull, dark grey, and the only variant whose STROKE is not the family green:
+    // #086A08 on a fill this dark is two close values, so the contour would simply vanish. White
+    // inverts it and keeps a hard edge against everything the marker crosses — pale land, blue
+    // water, the port cards, and its own track dashes.
     //
     // Told apart from the ships by LIGHTNESS, which is what makes sharing the silhouette safe:
-    // L* ~19 against amber ~81 and green ~63. A hue step would not survive colour blindness; a
-    // lightness step of that size survives anything. Not pure black — on a warm off-white map that
-    // reads as a hole punched through, and nothing else here is #000.
-    { file: 'railcar.png', fill: '#2F2F2F', stroke: '#FFFFFF', note: 'inland rail leg' },
+    // L* 31.5 against amber 81.8 and green 63.6. A hue step would not survive colour blindness; a
+    // 32-point lightness step survives anything.
+    //
+    // #4A4A4A was measured against three neighbours, not picked by eye. #2F2F2F (L* 19.4) read as
+    // black rather than grey; #555555 (L* 36.1) lands 2.1 points off the rail-remaining dashes it
+    // rides on, which is the same value twice. This sits 6.8 off those dashes and the white
+    // contour covers the rest. Neutral R=G=B, like every other grey on this map (§15).
+    { file: 'railcar.png', fill: '#4A4A4A', stroke: '#FFFFFF', note: 'inland rail leg' },
   ],
 }
 

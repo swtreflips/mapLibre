@@ -585,15 +585,19 @@ isometric SVG card (§5.4).**
   than by being kept in step. An earlier version was its own blunt-car SVG; sharing the geometry
   removed the file that could drift.
 
-  **`#2F2F2F` near-black, and the one variant whose stroke is NOT the family green.** `#086A08` on
-  a near-black fill is two dark values a hair apart, so the contour would simply disappear; white
-  inverts it and keeps a hard edge against everything the marker crosses — pale land, blue water,
-  the port cards, and its own dark track dashes.
+  **`#4A4A4A` dark grey, and the one variant whose stroke is NOT the family green.** `#086A08` on
+  a fill this dark is two close values, so the contour would simply disappear; white inverts it and
+  keeps a hard edge against everything the marker crosses — pale land, blue water, the port cards,
+  and its own track dashes.
 
-  **Sharing a silhouette is safe here because the difference is LIGHTNESS, not hue** — L\* ≈ 19
-  against amber ≈ 81 and green ≈ 63. A hue step would not survive colour blindness; a lightness
-  step that large survives anything. Not pure black: on a warm off-white map that reads as a hole
-  punched through it, and nothing else on this map is `#000`.
+  **Sharing a silhouette is safe here because the difference is LIGHTNESS, not hue** — L* 31.5
+  against amber 81.8 and green 63.6. A hue step would not survive colour blindness; a 32-point
+  lightness step survives anything.
+
+  The value was **measured against its neighbours, not picked by eye**: `#2F2F2F` (L* 19.4) read
+  as black rather than grey, and `#555555` (L* 36.1) sits 2.1 points off the `rail-remaining`
+  dashes it rides on — the same value twice. `#4A4A4A` is 6.8 off those dashes, with the white
+  contour covering the rest. Neutral R=G=B, like every grey on this map (§15).
 
   The rail count numeral takes `palette.railInk` (the FILL) rather than the contour the ships use,
   because rail's contour is white and a white numeral would be invisible. `railInk` must match the
