@@ -125,6 +125,25 @@ const computeMinZoom = (width) => Math.log2(width / 512)
 
 const EMPTY_FC = { type: 'FeatureCollection', features: [] }
 
+// The rail leg is drawn starting 3% along its lane, not at the port itself.
+//
+// A container that has just cleared its port is geometrically AT the port, which parks the railcar
+// underneath that port's own container card — two things stacked on one point, neither readable.
+// 3% of a 1,281 km lane is ~38 km.
+//
+// It is a PRESENTATION offset and it is one-sided: only the start moves. The end stays exact, so
+// the box still lands on its yard precisely on expected_lastcy_date, which is the date anyone would
+// check it against. Costs ~38 km of positional honesty on day one, on a position that is an
+// estimate to begin with (§6).
+//
+// WHERE IT STOPS HELPING: the offset is a fraction of the LANE, but the thing it is dodging is a
+// card of fixed PIXEL size. Measured against the New York card — clear from about z5.5 up (50 px
+// at z6.5), but only ~5 px at z4, where the whole 1,281 km lane spans well under 200 px and the
+// railcar still sits under the card. Fixing that properly means nudging in screen space, which is
+// what relaxOverlaps in src/map/declutter.js already does for close ports.
+const RAIL_START = 0.03
+const railProgress = (p) => RAIL_START + p * (1 - RAIL_START)
+
 
 
 // Search dimming for the vessel layer, sharing the port card's constant so a ghosted ship and a
@@ -324,7 +343,7 @@ function buildFeatures(shipments, routesByKey, railByKey, map, portPoints, match
   // differs is only which lane and which pair of dates: the rail lane, and actual_portdate ->
   // expected_lastcy_date.
   for (const t of trains) {
-    const progress = computeProgress(t.etd, t.eta)
+    const progress = railProgress(computeProgress(t.etd, t.eta))
     const { pos, cut } = positionAtProgress(t.coords, progress)
     if (!pos) continue
     const next = t.coords[Math.min(cut + 1, t.coords.length - 1)]
