@@ -247,10 +247,10 @@
   outline-offset: 2px;
 }
 
-/* ── The Snapshot ────────────────────────────────────────────────────────────────────
+/* ── The Overview ────────────────────────────────────────────────────────────────────
    The default state of the panel: the whole fleet in numbers, each one a way into the
    containers behind it. */
-.panel--snapshot {
+.panel--overview {
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -258,12 +258,12 @@
   overflow-y: auto;
 }
 
-.snap__head {
+.overview__head {
   padding-bottom: 12px;
   border-bottom: 1px solid rgb(var(--c-fog-200));
 }
 
-.snap__kicker {
+.overview__kicker {
   margin: 0;
   font-family: var(--font-mono);
   font-size: 9px;
@@ -273,7 +273,7 @@
   color: rgb(var(--c-fog-400, var(--c-fog-500)));
 }
 
-.snap__total {
+.overview__total {
   margin: 4px 0 0;
   font-size: 26px;
   font-weight: 700;
@@ -282,7 +282,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-.snap__total span {
+.overview__total span {
   margin-left: 6px;
   font-size: 12px;
   font-weight: 500;

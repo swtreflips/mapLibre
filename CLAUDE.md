@@ -498,7 +498,7 @@ the data held exactly 1 — grouping is what made it honest.
 
 ### The tray — [Sidebar.jsx](src/components/Sidebar.jsx), [ContainerCard.jsx](src/components/ContainerCard.jsx)
 
-- **Nothing selected** → the Snapshot counts below. Selecting a holder replaces them; the two
+- **Nothing selected** → the Overview counts below. Selecting a holder replaces them; the two
   never stack.
 - **Holder selected** → header (kind · name · count) over a scrolling list of container cards.
   Cards show container no + status chip, shipment/vessel, route, dates, free day and appointment,
@@ -554,10 +554,15 @@ the data held exactly 1 — grouping is what made it honest.
   heavier is synthesised — the browser smears the 400 glyph, which at 9px reads as a malformed
   letter (capital S worst). Add size or tracking for emphasis, not weight.
 
-### The Snapshot — [src/lib/stats.js](src/lib/stats.js)
+### The Overview — [src/lib/stats.js](src/lib/stats.js)
 
 What the sidebar shows when nothing is selected: the whole fleet in numbers, each one a way into
 the containers behind it.
+
+**Not "Snapshot", which this panel was called.** That word is already taken here — §12/§14 use it
+for the thrice-weekly ingestion push — and it sold a live, clickable panel as a frozen moment.
+"Overview" also names the CONTENT rather than the format: the big count and the two groups under it
+already say this is a summary, so the kicker does not have to spend its one line saying so.
 
 | group | rows |
 |---|---|

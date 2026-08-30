@@ -1,4 +1,4 @@
-// SNAPSHOT STATS — the fleet in numbers, and the containers behind each one.
+// OVERVIEW STATS — the fleet in numbers, and the containers behind each one.
 //
 // Pure, like holders.js and search.js: no React, no map, no storage. It answers "how many, and
 // which".

@@ -6,7 +6,7 @@ import ContainerCard from './ContainerCard'
 import SearchBox from './SearchBox'
 import './Sidebar.css'
 
-// One number in the Snapshot. A live count is a BUTTON — clicking it filters the sidebar to the
+// One number in the Overview. A live count is a BUTTON — clicking it filters the sidebar to the
 // containers behind it, which is what turns the panel from a readout into the way into a worklist.
 //
 // A count of ZERO is not a button. There is nothing behind it, and a filter that yields an empty
@@ -42,11 +42,16 @@ function Group({ title, count, children }) {
   )
 }
 
-// THE SNAPSHOT — the whole fleet, when nothing is selected.
+// THE OVERVIEW — the whole fleet, when nothing is selected.
+//
+// NOT "snapshot", which this was called: that word already means the thrice-weekly ingestion push
+// in this codebase (CLAUDE.md §14), and it sells a live panel as a frozen moment. "Overview" also
+// names the CONTENT rather than the format — the count and the two groups below already say that
+// this is a summary, so the kicker does not have to.
 //
 // No per-port breakdown, deliberately: the MAP is the per-port view, and repeating it here would
 // push the numbers only this panel can give — on rail, arriving soon — below the fold.
-function Snapshot({ stats, onCommit }) {
+function Overview({ stats, onCommit }) {
   // The id Set comes straight from computeStats rather than being recomputed here. It is also
   // memoised, which matters beyond speed: matchedIds is a dependency of MapView's rebuild effect,
   // and a fresh Set each render would redraw the world.
@@ -54,10 +59,10 @@ function Snapshot({ stats, onCommit }) {
     onCommit({ kind: 'stat', group, value: label, ids: stats.ids[key] })
 
   return (
-    <section className="panel panel--snapshot">
-      <header className="snap__head">
-        <p className="snap__kicker">Snapshot</p>
-        <h3 className="snap__total">
+    <section className="panel panel--overview">
+      <header className="overview__head">
+        <p className="overview__kicker">Overview</p>
+        <h3 className="overview__total">
           {stats.total}
           <span> container{stats.total === 1 ? '' : 's'}</span>
         </h3>
@@ -216,13 +221,13 @@ export default function Sidebar({
       />
 
       {/* Three states, never stacked: a selected holder wins, then an active filter's results,
-          then the snapshot. */}
+          then the overview. */}
       {selected ? (
         <Tray holder={selected} matchedIds={matchedIds} />
       ) : filter && matchedIds ? (
         <Results shipments={shipments} matchedIds={matchedIds} filter={filter} onClear={onClear} />
       ) : (
-        <Snapshot stats={stats} onCommit={onCommit} />
+        <Overview stats={stats} onCommit={onCommit} />
       )}
     </aside>
   )
