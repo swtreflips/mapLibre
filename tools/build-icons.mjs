@@ -23,9 +23,12 @@ import sharp from 'sharp'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 // Two source artworks now, one per moving marker. Both go through the same tiers and the same
 // symmetry assertion, because both rotate on the map and both hit the same traps.
+// ONE artwork again. The rail marker used to be its own SVG with a blunt car silhouette; it now
+// shares the vessel's geometry exactly, so a second file would have been the same polygon twice
+// and the two could drift apart. Keeping the list makes adding a genuinely different shape later
+// a one-line change.
 const ARTWORKS = [
   { src: join(ROOT, 'assets', 'vessel.svg'), name: 'assets/vessel.svg', variants: 'VESSEL' },
-  { src: join(ROOT, 'assets', 'railcar.svg'), name: 'assets/railcar.svg', variants: 'RAIL' },
 ]
 const OUT = join(ROOT, 'public', 'icons')
 
@@ -70,11 +73,17 @@ const VARIANTS = {
   VESSEL: [
     { file: 'nauticalDefault2.png', fill: '#FFC220', stroke: '#086A08', note: 'arrival_notice != yes' },
     { file: 'nauticalGreen2.png', fill: '#23B14D', stroke: '#086A08', note: 'arrival_notice = yes' },
+    // RAIL. Same hull, near-black, and the only variant whose STROKE is not the family green:
+    // #086A08 on a near-black fill is two dark values a hair apart, so the contour would simply
+    // vanish. White inverts it and keeps a hard edge against everything the marker crosses — pale
+    // land, blue water, the port cards, and its own dark track dashes.
+    //
+    // Told apart from the ships by LIGHTNESS, which is what makes sharing the silhouette safe:
+    // L* ~19 against amber ~81 and green ~63. A hue step would not survive colour blindness; a
+    // lightness step of that size survives anything. Not pure black — on a warm off-white map that
+    // reads as a hole punched through, and nothing else here is #000.
+    { file: 'railcar.png', fill: '#2F2F2F', stroke: '#FFFFFF', note: 'inland rail leg' },
   ],
-  // ONE variant for rail. The ship's two colours encode arrival_notice; the inland leg has no
-  // equivalent signal, and a second colour would imply a distinction that does not exist. Steel
-  // grey, carrying the vessel's stroke so the pair reads as one family.
-  RAIL: [{ file: 'railcar.png', fill: '#9AA6B2', stroke: '#086A08', note: 'inland rail leg' }],
 }
 
 const STROKE_ATTR = `stroke-width="${BASE_STROKE_WIDTH}"`

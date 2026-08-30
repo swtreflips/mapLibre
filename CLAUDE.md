@@ -580,16 +580,25 @@ isometric SVG card (§5.4).**
   - **`stroke-width: 2` is a floor, not a style.** At `pixelRatio: 2` it lands at 1 CSS px. The
     old 1px stern edge fell below a device pixel once `icon-size` dropped to 0.6 and flickered as
     the icon turned. If it reads thin at the lowest zoom, raise the stroke — don't scale the icon.
-- **Rail: edit [assets/railcar.svg](assets/railcar.svg), then `npm run build:icons`.** The bake now
-  walks an `ARTWORKS` list, so both markers go through the same tiers and the same symmetry
-  assertion — both rotate, so both hit the same half-pixel trap. **One variant only:** the ship's
-  amber/green encodes `arrival_notice`, the inland leg has no equivalent signal, and a second
-  colour would imply a distinction that does not exist. Steel `#9AA6B2` with the vessel's `#086A08`
-  stroke, so the pair reads as one family and the count numeral still belongs to it.
+- **Rail is a THIRD VARIANT of the same artwork**, not a second file. It shares the vessel's
+  polygon exactly, so `icon-size`, both tiers and the z4 step are identical by construction rather
+  than by being kept in step. An earlier version was its own blunt-car SVG; sharing the geometry
+  removed the file that could drift.
 
-  **The two moving markers are told apart by SILHOUETTE, not colour** — a sharp-bowed dart against
-  a blunt chamfered car — which is the same rule the three route styles follow. Proportion is what
-  makes it read: the first cut was 54×35, nearly square, and looked like a grey tag at map size.
+  **`#2F2F2F` near-black, and the one variant whose stroke is NOT the family green.** `#086A08` on
+  a near-black fill is two dark values a hair apart, so the contour would simply disappear; white
+  inverts it and keeps a hard edge against everything the marker crosses — pale land, blue water,
+  the port cards, and its own dark track dashes.
+
+  **Sharing a silhouette is safe here because the difference is LIGHTNESS, not hue** — L\* ≈ 19
+  against amber ≈ 81 and green ≈ 63. A hue step would not survive colour blindness; a lightness
+  step that large survives anything. Not pure black: on a warm off-white map that reads as a hole
+  punched through it, and nothing else on this map is `#000`.
+
+  The rail count numeral takes `palette.railInk` (the FILL) rather than the contour the ships use,
+  because rail's contour is white and a white numeral would be invisible. `railInk` must match the
+  rail variant's fill in [tools/build-icons.mjs](tools/build-icons.mjs) — the bake carries its own
+  literal, so the two are kept in step by hand.
 - `nauticalWhite2.png` is the **obsolete** recolour source from the raster era; the SVG replaced
   it and nothing reads it at runtime.
 - `exemplar.png` is a **MarineTraffic screenshot**, not an icon — 0% transparency, opaque

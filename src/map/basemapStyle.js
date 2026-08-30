@@ -66,6 +66,11 @@ const GOOGLEISH = {
   // ring and numeral share ONE source of truth with the icon they sit on — if the ship's outline
   // is ever recoloured, the badge follows instead of quietly drifting out of family.
   vesselOutline: '#086A08',
+  // The rail marker's ink. Same hull as the ships, told apart by LIGHTNESS rather than hue — which
+  // is what makes sharing a silhouette safe for a colour-blind reader. Perfectly neutral (R=G=B),
+  // like the contour above and for the same reason. Must match the rail variant's fill in
+  // tools/build-icons.mjs: the bake has its own literal, so the two are kept in step by hand.
+  railInk: '#2F2F2F',
 }
 
 // Resolved once per call so the map re-reads the skin whenever the style is rebuilt.
@@ -80,6 +85,7 @@ export const mapPalette = () => ({
   dotIntl: GOOGLEISH.labelSecondary,
   dotFill: '#ffffff',
   vesselOutline: GOOGLEISH.vesselOutline,
+  railInk: GOOGLEISH.railInk,
   // White, not the water colour: a label can sit over blue sea or off-white land, and a halo
   // tinted for one of them smudges against the other.
   labelHalo: '#ffffff',

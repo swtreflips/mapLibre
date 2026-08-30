@@ -670,7 +670,10 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
         },
         paint: {
           'icon-opacity': MATCH_OPACITY,
-          'text-color': palette.vesselOutline,
+          // The rail marker's own ink, not the ships' green. The numeral belongs to the icon it
+          // trails, and rail's contour is white — a white numeral would be invisible on this map,
+          // so it takes the FILL colour instead.
+          'text-color': palette.railInk,
           'text-halo-color': palette.labelHalo,
           'text-halo-width': 1.2,
           'text-opacity': MATCH_OPACITY,
