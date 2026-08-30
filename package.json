@@ -12,7 +12,8 @@
     "build:glyphs": "node tools/build-glyphs.mjs",
     "build:icons": "node tools/build-icons.mjs",
     "test:flexpolyline": "node tools/check-flexpolyline.mjs",
-    "test:voyage": "node tools/check-voyage-phase.mjs"
+    "test:voyage": "node tools/check-voyage-phase.mjs",
+    "test:grouping": "node tools/check-voyage-grouping.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.0",

@@ -28,20 +28,41 @@ const seaLane = (s) => s.sea_route ?? s.route
 // across refreshes, rather than shuffling when the data reloads.
 const byShipment = (a, b) => (a.shipment < b.shipment ? -1 : a.shipment > b.shipment ? 1 : 0)
 
-// THE VOYAGE a container is aboard: one hull, one departure, one arrival. Containers group only
-// when all three agree.
+// THE VOYAGE a container is aboard: one hull, one departure, one arrival, ONE LEG. Containers
+// group only when all five agree — vessel, ETD, ETA, port of loading, port of discharge.
 //
-// Two ways out into a holder of one, and both are the rule being honest rather than exceptions to
-// it. A blank VESSEL NAME cannot be shared — every unnamed row would otherwise collapse into a
-// single ghost ship on whatever dates they happened to have in common. And a MISSING DATE is not a
-// value two rows can match on: two unknowns are not the same unknown, and treating them as one
-// would put containers on a hull because of what the feed failed to say about them.
+// THE PORTS ARE WHAT MAKE THE GROUP SAFE TO DRAW. The other three identify the sailing, but the
+// holder is positioned along a POLYLINE, and the polyline is looked up by lane. Without the ports
+// in the key, one voyage could collect containers booked on two different lanes, and since only
+// one polyline can carry the icon the rest would be drawn on a route they are not on. That was a
+// real hole, papered over with a DEV warning; keying on the ports closes it instead.
+//
+// NORMALIZED, because port names in this data are not: `Singapore`, `SINGAPORE` and
+// `Singapore, Singapore` are all legal spellings of one place (CLAUDE.md §4), and a voyage must
+// not split on capitalisation.
+//
+// DELIBERATELY normalizeKey AND NOT facilityKey, which is the opposite of the rule everywhere
+// else (§8: use facilityKey on both sides of any port comparison). facilityKey folds a two-port
+// complex into one name — Long Beach becomes Los Angeles — which is right for a CARD, because the
+// two are 4.6 km apart and one gateway. It is wrong here: `Bangkok - Long Beach` and
+// `Bangkok - Los Angeles` are two different polylines, so folding them would merge exactly the
+// containers this key exists to keep apart, and hand the group one lane out of two.
+//
+// Three ways out into a holder of one, all of them the rule being honest rather than exceptions
+// to it. A blank VESSEL NAME cannot be shared — every unnamed row would otherwise collapse into a
+// single ghost ship on whatever else they happened to have in common. A MISSING DATE is not a
+// value two rows can match on: two unknowns are not the same unknown. And a MISSING PORT leaves
+// the leg unidentified, which is the one thing the ports were added to pin down.
 //
 // Falling back to the shipment id makes those rows individually keyed, so they stand alone.
-const voyageKey = (s) =>
-  s.vessel?.trim() && s.actual_shipping && s.expected_portdate
-    ? `${normalizeKey(s.vessel)}|${s.actual_shipping}|${s.expected_portdate}`
-    : `solo|${s.shipment}`
+const voyageKey = (s) => {
+  const parts = [s.vessel, s.actual_shipping, s.expected_portdate, s.port_of_loading, s.port_of_discharge]
+  if (parts.some((p) => !p || !String(p).trim())) return `solo|${s.shipment}`
+  const [vessel, etd, eta, pol, pod] = parts
+  // Dates stay RAW: same YYYY-MM-DD field, same feed, so equal voyages give equal strings and
+  // normalizing them could only invent a way for two identical dates to differ.
+  return `${normalizeKey(vessel)}|${etd}|${eta}|${normalizeKey(pol)}|${normalizeKey(pod)}`
+}
 
 /**
  * @param {object[]} shipments
@@ -130,12 +151,12 @@ export function buildHolders(shipments, routesByKey, portPoints, railByKey) {
         name: v.name || '(unnamed vessel)',
         subtitle: v.route,
         coords: v.coords,
-        // EVERY lane in the group, not just the one it is drawn on. Route is deliberately
-        // not part of the key — the rule is vessel + ETD + ETA — so a hull sailing one
-        // voyage can in principle arrive here carrying containers booked on two different
-        // lanes. Only one polyline can position the icon, so the rest would be plotted on a
-        // route their containers did not take. That is the one silent wrong answer this
-        // grouping can give, so the group carries the evidence and the DEV log names it.
+        // EVERY lane in the group, not just the one it is drawn on. The ports are in the key
+        // now, so containers here already agree on POL and POD — but `route` is a SEPARATE,
+        // DERIVED field ("POL - POD", assembled upstream) and it is what the polyline is looked
+        // up by. If it disagrees with the ports it was built from, the group is drawn on a lane
+        // its own ports contradict. Narrower than the hole this used to guard, and no longer
+        // reachable through ordinary data — which is exactly why it is worth a warning.
         lanes: [...new Set(v.containers.map(seaLane).filter(Boolean))],
         // Every container here shares both dates BY CONSTRUCTION — they are two thirds of the
         // grouping key — so the first row's are the group's. This used to be voyageEta/voyageEtd,

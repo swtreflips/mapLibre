@@ -474,7 +474,7 @@ Clicking either fills the sidebar with a **tray** — one card per container it 
 
 | holder | grouped by | anchored at |
 |---|---|---|
-| vessel | `vessel + ETD + ETA` — a **voyage**, not a name (see below) | interpolated position (§5.1) |
+| vessel | `vessel + ETD + ETA + POL + POD` — a **voyage**, not a name (see below) | interpolated position (§5.1) |
 | port | `port_of_discharge` | the port's own coordinate (§5.4) |
 
 **Two-port complexes merge into one card.** `PORT_ALIASES` in [places.js](src/data/places.js) folds
@@ -488,9 +488,23 @@ card keyed on Los Angeles otherwise.
 every container card in the tray still names the port its box is actually at. The alias VALUE must
 be a real `us_ports` row or the merged card has nothing to anchor to.
 
-**A VOYAGE IS `vessel + actual_shipping + expected_portdate`.** All three, or the container gets its
-own hull. Same ship on different dates is a different sailing, and nothing about a shared name or a
-shared lane substitutes for a date.
+**A VOYAGE IS `vessel + actual_shipping + expected_portdate + port_of_loading + port_of_discharge`.**
+All five, or the container gets its own hull. Same ship on different dates is a different sailing,
+and the same ship on the same dates between different ports is a different leg.
+
+**The ports are what make the group safe to DRAW.** The first three identify the sailing, but a
+holder is positioned along a *polyline*, looked up by lane. Without the ports, one voyage could
+collect containers booked on two lanes — and since only one polyline can carry the icon, the rest
+would be drawn on a route they are not on. That hole existed for one commit, papered over with a
+DEV warning; keying on the ports closes it instead.
+
+**Ports go through `normalizeKey`, NOT `facilityKey` — the opposite of the rule everywhere else.**
+§8 otherwise says to use `facilityKey` on both sides of any port comparison, because it folds a
+two-port complex into one name. That is right for a CARD: Long Beach and Los Angeles are 4.6 km
+apart and one gateway. It is wrong here — `Bangkok - Long Beach` and `Bangkok - Los Angeles` are two
+different polylines, so folding them would merge exactly the containers this key exists to separate
+and hand the group one lane out of two. Normalizing (not folding) still absorbs the spelling drift
+the port data really has (`Singapore` / `SINGAPORE` / `Singapore, Singapore`, §4).
 
 This replaced `vessel + route`, which grouped on the LANE — so every container Cartagena → New York
 aboard a "CAUTIN" was asserted to be on one hull whatever its dates said. The fixture had three such
@@ -501,10 +515,10 @@ The grouping was fabricated to give the badge a number bigger than 1.
 so equal voyages give equal keys; parsing first would only add a way for two identical strings to
 disagree.
 
-**A blank vessel name or a missing date falls back to the shipment id**, so those rows stand alone.
-Both are the rule being honest rather than exceptions to it: unnamed rows would otherwise collapse
-into one ghost ship, and two unknown dates are not the same date — grouping on them would put
-containers on a hull because of what the feed failed to say.
+**Any of the five missing falls back to the shipment id**, so that row stands alone. This is the rule
+being honest rather than an exception to it: unnamed rows would otherwise collapse into one ghost
+ship, and two unknown dates are not the same date — grouping on a blank would put containers on a
+hull because of what the feed failed to say about them.
 
 **This deleted `voyageEta` / `voyageEtd` / `etaDisagreements`.** Those existed to reconcile a group
 that could legitimately disagree — it took the latest `expected_portdate` and logged the conflict.
@@ -513,11 +527,17 @@ reads its dates off `containers[0]` exactly as the rail branch always did. **The
 not vanish, it moved:** it now shows as one ship name standing in two places, which `vesselSplits`
 reports to the DEV log. Often that is simply true — a ship really does sail many voyages.
 
-**The one silent wrong answer this can give is a MIXED LANE.** Route is deliberately not in the key,
-so one voyage could carry containers booked on two lanes; only one polyline can position the icon,
-so the rest would be drawn on a route their containers did not take. The holder therefore carries
-`lanes` (every distinct lane in the group) and MapView **warns** when it is longer than 1 — louder
-than the split log, because a split is usually true whereas this is always a fault.
+**The holder still carries `lanes`, now guarding a narrower fault.** Containers in a group agree on
+POL and POD by construction — but `route` is a *separate, derived* field ("POL - POD", assembled
+upstream) and it is what the polyline is actually looked up by. If it disagrees with the ports it was
+built from, the group is drawn on a lane its own ports contradict. MapView **warns** when `lanes`
+exceeds 1 — louder than the split log, because a split is usually true whereas this is always a fault.
+
+**Guarded by `npm run test:grouping`** ([tools/check-voyage-grouping.mjs](tools/check-voyage-grouping.mjs)).
+The fixture holds exactly one multi-container voyage, so running the app demonstrates the five-way
+match succeeding and none of the ways it must fail — and every failure here is silent. Group two
+containers that are not on one hull and you get a confident badge over a position right for only one
+of them; split two that are, and the ship appears twice. Neither throws, and neither looks wrong.
 
 **One feature per holder**, so a vessel carrying three containers is one icon whose badge reads 3.
 That badge was a hardcoded `MOCK_CONTAINER_COUNT = 7` for several iterations while every vessel in
