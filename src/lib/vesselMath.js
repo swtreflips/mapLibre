@@ -36,13 +36,23 @@ export function computeBearing(a, b) {
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360
 }
 
-// Fraction 0..1 of the voyage elapsed. start/end = Date, now = Date.
+// Fraction 0..1 of a leg elapsed. start/end = Date, now = Date.
+//
+// COMPARED AT LOCAL MIDNIGHT, not at the current instant. `start` and `end` come from parseYMD,
+// which returns local midnight, so measuring from `new Date()` mixed a timestamp against two
+// midnights: a container that landed TODAY was already part-way down its lane, by however far
+// through the day it happened to be. Measured on a 13-day rail leg at 19:39, that put the marker
+// at 14% instead of 7.7% — roughly 70 km past where the dates say it is.
+//
+// The inputs are DATES. A day is the finest thing this data actually knows, so interpolating
+// inside one is precision it does not have. Progress now steps once a day, which is also the
+// cadence the feed itself updates on (CLAUDE.md §6).
 export function computeProgress(start, end, now = new Date()) {
   if (!start || !end) return 0
   const s = start.getTime()
   const e = end.getTime()
   if (e <= s) return 1
-  return Math.min(Math.max((now.getTime() - s) / (e - s), 0), 1)
+  return Math.min(Math.max((midnight(now).getTime() - s) / (e - s), 0), 1)
 }
 
 // Point at fractional distance `progress` along coords [[lng,lat],...].

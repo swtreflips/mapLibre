@@ -379,9 +379,17 @@ Compute the vessel/container GeoJSON and call `map.getSource(...).setData(fc)` o
    code rebuilds everything on `zoomend` (cheap for our counts). Icon size is a layer zoom
    expression, so it needs no JS (§5.5).
 
-That's it — no per-frame work, no `cancelAnimationFrame` to manage. `progress` uses the
-client clock at compute time:
-`progress = clamp((Date.now() − startDate) / (expected_portdate − startDate), 0, 1)`.
+That's it — no per-frame work, no `cancelAnimationFrame` to manage. `progress` is measured at the
+client's **local midnight**, not at the current instant:
+`progress = clamp((todayLocalMidnight − startDate) / (endDate − startDate), 0, 1)`.
+
+**Midnight is the whole point, and it was a real bug.** `parseYMD` returns local midnight, so
+comparing against `Date.now()` measured a timestamp against two midnights: a container was already
+part-way down its leg on the day it started, by however far through the day it happened to be.
+Measured on a 13-day rail leg at 19:39, that put the marker at 14% instead of 7.7% — about 70 km
+past where the dates said it was. **The inputs are dates**; a day is the finest thing this data
+knows, so interpolating inside one is precision it does not have. Progress now steps once a day,
+which is also the cadence the feed updates on.
 
 - Symbol rotation: `"icon-rotate": ["get", "bearing"]`; bearing is written once per compute.
 - Containers (future/arrived) were already static — unchanged.
