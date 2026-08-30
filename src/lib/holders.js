@@ -8,8 +8,14 @@
 // This module owns the grouping and nothing else — no map, no projection, no React. It answers
 // "what is where", and MapView decides how to draw it.
 
-import { normalizeKey, parseYMD, shipmentState, currentFacility } from './vesselMath'
-import { canonicalPort, facilityKey } from '../data/places'
+import {
+  normalizeKey,
+  parseYMD,
+  shipmentState,
+  currentFacility,
+  canonicalPort,
+  facilityKey,
+} from './vesselMath'
 
 // The sea lane. Two spellings are live: `route` on shipments that end at their discharge port, and
 // `sea_route` on intermodal ones that also carry a `rail_route`. Neither column exists in the

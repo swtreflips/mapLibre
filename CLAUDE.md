@@ -423,6 +423,13 @@ per-container breakdown is what the tray is for (§8).
 it landed at and the table above is complete. Different means it has an **inland leg**: it moves by
 rail to an interior yard, and the port is a waypoint.
 
+**Compared on CANONICAL keys, not raw names** (`facilityKey`, §8). A box discharged at Los Angeles
+and delivered to a Long Beach yard has crossed a harbour — 4.6 km — not the country. The plain name
+comparison called that intermodal and drew a railcar creeping between them for a fortnight. Inside
+one complex it stays an ordinary arrival: `actual_portdate` decides when it lands, dwell counts from
+that date, and it joins the complex's single card. A genuine inland leg out of the same port
+(Los Angeles → Cincinnati) is unaffected.
+
 | state | condition | placement | icon |
 |---|---|---|---|
 | **rail** | `actual_portdate` set, POD ≠ Lastcy, today < `expected_lastcy_date` | interpolated along the `rail_route` lane | railcar |

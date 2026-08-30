@@ -309,6 +309,34 @@ const inboundShipments = [
       { po_number: 'PO155561', item: 'PARE-WT10712', qty: 410, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
     ],
   },
+  // TEST: an INTRA-COMPLEX transfer. Discharged at Los Angeles, delivered to a Long Beach yard,
+  // and it even carries an expected_lastcy_date — so the plain "POD != Lastcy" rule called this
+  // rail and drew a railcar crawling across the harbour. isIntermodal now compares CANONICAL keys,
+  // so this is an ordinary arrival: actual_portdate decides, and it joins the Los Angeles card.
+  {
+    shipment: 'INBSHIP3963',
+    container: 'TCLU4419388',
+    vessel: 'MSC ANNA',
+    confirmed_carrier: 'MSC',
+    freight_forwarder: 'Topocean Consolidation Service (Los Angeles)',
+    drayage_provider: 'Unis Transportation, LLC',
+    hbl: 'MEDUL9920147',
+    mbl: 'MEDUL9920145',
+    port_of_loading: 'Bangkok, Thailand',
+    port_of_discharge: 'Los Angeles, CA',
+    Lastcy: 'Long Beach, CA',
+    route: 'Bangkok, Thailand - Los Angeles, CA',
+    actual_shipping: daysAgo(34),
+    expected_portdate: daysAgo(2),
+    actual_portdate: daysAgo(2),
+    expected_lastcy_date: daysAhead(5),
+    appointment_date: '',
+    arrival_notice: 'yes',
+    last_freeday: daysAhead(3),
+    items: [
+      { po_number: 'PO155562', item: 'DFGR-WT10712', qty: 300, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
+    ],
+  },
 ]
 
 export default inboundShipments

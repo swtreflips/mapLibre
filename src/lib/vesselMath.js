@@ -5,6 +5,33 @@
 export const normalizeKey = (s) =>
   s ? s.replace(/\s+/g, ' ').replace(/\s*,\s*/g, ', ').trim().toLowerCase() : ''
 
+// ── Port complexes ───────────────────────────────────────────────────────────────────
+//
+// Some neighbouring ports work as ONE gateway. Los Angeles and Long Beach share a harbour and are
+// routinely quoted together; Miami and Port Everglades are handled as a pair. Two consequences,
+// and the second is the one that is easy to miss:
+//
+//   1. They draw ONE card, named for the canonical port (holders.js).
+//   2. A move BETWEEN them is not a rail leg. A box discharged at Los Angeles and delivered to a
+//      Long Beach yard has gone across a harbour, not across the country — see isIntermodal.
+//
+// Lives here rather than in data/places.js, where the rest of the port config sits, only because
+// isIntermodal needs it and places.js already imports normalizeKey from this file; the reverse
+// edge would be an import cycle.
+//
+// Keys are normalizeKey form. The VALUE must be a real `us_ports` row, or the merged card has
+// nothing to anchor to.
+export const PORT_ALIASES = new Map([
+  ['long beach, ca', 'Los Angeles, CA'],
+  ['port everglades, fl', 'Miami, FL'],
+])
+
+/** The name a port should be GROUPED and LABELLED under. Identity for everything unaliased. */
+export const canonicalPort = (name) => PORT_ALIASES.get(normalizeKey(name)) ?? name
+
+/** The grouping key for a facility, with any complex already resolved. */
+export const facilityKey = (name) => normalizeKey(canonicalPort(name))
+
 // "YYYY-MM-DD" -> local-midnight Date, or null. Manual parse avoids UTC off-by-one.
 export function parseYMD(s) {
   if (!s) return null
@@ -103,8 +130,14 @@ const isSet = (v) => Boolean(v && v.trim() !== '')
 // port it landed at, and the journey ends there. When they differ the box has an INLAND LEG: it
 // moves by rail from the seaport to an interior yard, and the port is a waypoint, not a
 // destination.
+//
+// Compared on CANONICAL keys, though, so a move INSIDE one port complex is not a rail leg. A box
+// discharged at Los Angeles and delivered to a Long Beach yard has crossed a harbour — 4.6 km —
+// and the plain name comparison called that intermodal, which would have drawn a railcar creeping
+// between them over a fortnight. Those boxes stay ordinary arrivals: `actual_portdate` decides when
+// they land, and they land on the complex's single card.
 export const isIntermodal = (s) =>
-  normalizeKey(s.port_of_discharge) !== normalizeKey(s.Lastcy) && isSet(s.Lastcy)
+  facilityKey(s.port_of_discharge) !== facilityKey(s.Lastcy) && isSet(s.Lastcy)
 
 // The facility the container is physically at — which is NOT always the discharge port. Once an
 // inland leg is complete the box lives at Lastcy, and a card must be drawn there.
