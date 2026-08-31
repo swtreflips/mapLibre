@@ -290,13 +290,13 @@
 .panel--overview {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
   padding: 16px;
   overflow-y: auto;
 }
 
 .overview__head {
-  padding-bottom: 12px;
+  padding-bottom: 14px;
   border-bottom: 1px solid rgb(var(--c-fog-200));
 }
 
@@ -310,40 +310,83 @@
   color: rgb(var(--c-fog-400, var(--c-fog-500)));
 }
 
-.overview__total {
-  margin: 4px 0 0;
-  font-size: 26px;
+/*
+  TWO CLASSES, and the second one is load-bearing rather than tidy.
+
+  `.sidebar h3` above is specificity 0,1,1 and this is an <h3>, so a lone `.overview__total`
+  (0,1,0) LOSES — the 26px/700 written here drew at 17px/600 from the day it was added
+  (032d14e) until it was measured. Only `font-variant-numeric` ever got through, because that is
+  the one property `.sidebar h3` does not set, which is exactly how the rule looked like it was
+  working. `.panel--overview .overview__total` is 0,2,0 and wins.
+*/
+.panel--overview .overview__total {
+  margin: 6px 0 0;
+  font-size: 30px;
   font-weight: 700;
-  line-height: 1.1;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
   color: rgb(var(--c-harbor-950));
   font-variant-numeric: tabular-nums;
 }
 
-.overview__total span {
-  margin-left: 6px;
-  font-size: 12px;
+.panel--overview .overview__total span {
+  margin-left: 7px;
+  font-size: 13px;
   font-weight: 500;
+  letter-spacing: 0;
   color: rgb(var(--c-fog-500));
 }
 
-/* ── Groups ─────────────────────────────────────────────────────────────────────────── */
+/* ── Groups ───────────────────────────────────────────────────────────────────────────
+   Each group is a CARD, on the same surface the container cards use — white ground, fog-200
+   hairline, 2xl radius, shadow-card, written longhand exactly as ContainerCard.css does it. The
+   Overview and the tray then read as one family of surfaces rather than two unrelated panels. */
+.statgroup {
+  border: 1px solid rgb(var(--c-fog-200));
+  border-radius: var(--radius-2xl, 14px);
+  background: #fff;
+  box-shadow: var(--shadow-card);
+  padding: 12px 12px 6px;
+}
 
-.statgroup__title {
+.statgroup__head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin: 0 0 6px;
+  gap: 10px;
+  padding: 0 2px 10px;
+  border-bottom: 1px solid rgb(var(--c-fog-100));
+}
+
+.statgroup__title {
+  margin: 0;
   font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
+  font-size: 10px;
+  font-weight: 500; /* DM Mono loads 400/500 only — heavier is synthesised and smears */
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   color: rgb(var(--c-fog-400, var(--c-fog-500)));
 }
 
+/*
+  ITS OWN SIZE, which is the whole point of splitting it out of the title. It used to live inside
+  that <p> and inherit the 9px micro-label treatment, so the number summing four rows rendered
+  smaller than every row it summed.
+
+  SANS, not the mono the row figures use. At 24px the heaviest mono this app loads (500) reads
+  visibly lighter than the 30px sans total above it, and reaching for a 600 is not an option —
+  the browser synthesises it and the glyphs smear (see ContainerCard.css). Tabular numerals keep
+  it in the same numeric vocabulary as the rows without borrowing their weight problem.
+*/
 .statgroup__n {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
-  color: rgb(var(--c-harbor-800));
+  color: rgb(var(--c-harbor-950));
 }
 
 .statgroup__rows {
@@ -358,11 +401,11 @@
 .stat {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   width: 100%;
   box-sizing: border-box;
   margin: 0;
-  padding: 6px 8px;
+  padding: 10px;
   border: 0;
   border-radius: var(--radius-lg, 8px);
   background: none;
@@ -379,14 +422,15 @@
 .stat__label {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .stat__n {
   flex: 0 0 auto;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 13px;
+  font-size: 15px;
+  font-weight: 500;
   color: rgb(var(--c-harbor-900));
 }
 
@@ -414,8 +458,8 @@
    red there are the same container. Paired with the word, never standing alone. */
 .stat__dot {
   flex: 0 0 auto;
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 999px;
   background: var(--stat-tone, rgb(var(--c-fog-300)));
 }

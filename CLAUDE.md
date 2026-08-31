@@ -733,6 +733,30 @@ for the thrice-weekly ingestion push — and it sold a live, clickable panel as 
 "Overview" also names the CONTENT rather than the format: the big count and the two groups under it
 already say this is a summary, so the kicker does not have to spend its one line saying so.
 
+**Each group is a CARD**, on the surface the container cards already use — white ground, fog-200
+hairline, `--radius-2xl`, `--shadow-card`, written longhand as in
+[ContainerCard.css](src/components/ContainerCard.css). The Overview and the tray read as one family
+of surfaces rather than two unrelated screens.
+
+**THE GROUP COUNT NEEDS ITS OWN SIZE, and that is the trap this layout exists to fix.** It used to
+sit *inside* the group title's `<p>`, inheriting the 9px mono micro-label treatment — so the number
+summing four rows drew smaller than any row it summed, and the whole panel read flat. The header is
+now a flex row with the label and the count as **siblings**, which is the only reason they can be
+sized apart. Rendered sizes, and the order is the design: **total 30 › group count 24 › row number
+15 › row label 13 › micro-label 10**.
+
+**The group count is SANS, not the mono the row figures use.** At 24px the heaviest mono this app
+loads (500) reads visibly lighter than the 30px sans total above it, and a 600 is not available to
+reach for — the browser synthesises it and the glyphs smear (§8, DM Mono). Tabular numerals keep it
+in the same numeric vocabulary without borrowing that problem.
+
+**`.overview__total` needs TWO classes** (`.panel--overview .overview__total`). It is an `<h3>`, and
+`.sidebar h3` is specificity 0,1,1 — so the single-class rule lost, and the `26px/700` written there
+drew at `17px/600` from `032d14e` until it was measured. Only `font-variant-numeric` ever got
+through, because that is the one property `.sidebar h3` does not set, which is exactly why the rule
+looked like it was working. **`.tray__name` still carries the identical dead declaration** — same
+one-line fix, not yet applied.
+
 | group | rows |
 |---|---|
 | **In transit** | On water · On rail · Arriving next 7 days · Overdue |

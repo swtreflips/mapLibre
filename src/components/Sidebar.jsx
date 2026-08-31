@@ -31,15 +31,22 @@ function Stat({ label, count, tone, group, onPick }) {
   )
 }
 
+// A group of stats, as a CARD — the same surface the container cards in the tray use, so the two
+// panels read as one family rather than two unrelated screens.
+//
+// The header is its own flex ROW, with the label and the count as SIBLINGS. That is not cosmetic:
+// the count used to sit inside the label's <p>, inheriting its 9px mono micro-label treatment, so
+// the number summing four rows drew smaller than any of the rows it summed. A sibling can be sized
+// on its own terms.
 function Group({ title, count, children }) {
   return (
-    <div className="statgroup">
-      <p className="statgroup__title">
-        {title}
-        {count != null && <span className="statgroup__n">{count}</span>}
-      </p>
+    <section className="statgroup">
+      <header className="statgroup__head">
+        <p className="statgroup__title">{title}</p>
+        {count != null && <p className="statgroup__n">{count}</p>}
+      </header>
       <div className="statgroup__rows">{children}</div>
-    </div>
+    </section>
   )
 }
 
