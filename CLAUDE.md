@@ -474,15 +474,40 @@ that date, and it joins the complex's single card. A genuine inland leg out of t
 ## 8. Holders, the tray & stats
 
 **The unit of interaction is a HOLDER, not a container.** A container is always somewhere, and that
-somewhere is either a **vessel** carrying it or a **port** it is sitting at. Both hold 1..N.
-Clicking either fills the sidebar with a **tray** — one card per container it holds.
+somewhere is a **vessel** carrying it, a **train** carrying it, or a **facility** it is sitting at —
+which is either the port it will load from or the yard it has landed at. All hold 1..N. Clicking any
+of them fills the sidebar with a **tray** — one card per container it holds.
 [src/lib/holders.js](src/lib/holders.js) owns the grouping and knows nothing about the map.
 
 | holder | grouped by | anchored at |
 |---|---|---|
 | vessel | `vessel + POL + ETD` — a **sailing**, not a name and not a lane (see below) | interpolated along its **itinerary** (§5.1) |
 | rail | `POD + Lastcy + actual_portdate + expected_lastcy_date` — a **movement**, not a lane | interpolated along the rail lane (§7) |
-| port | `port_of_discharge` | the port's own coordinate (§5.4) |
+| port | the facility the box is AT — discharge port, or inland yard once railed | the port's own coordinate (§5.4) |
+| origin | `origin\|<load port>` — containers that have **not sailed yet** | the load port's own coordinate |
+
+**`future` used to be drawn NOWHERE**, and that was a real hole rather than a deferral. The state
+existed in `shipmentState`, `containerStatus` returned `NOT SAILED / ETD …`, `sortByPriority` gave it
+a band and the Overview counted it — but `buildHolders` dropped it on `state !== 'enroute'`, so a
+booked container was countable and searchable while being absent from the only place you would look
+for it. It now sits on an **origin card at its port of loading**.
+
+**Its own kind, not a port card.** A facility card says "these boxes have stopped and the question is
+what to clear next", and its whole colour language is dwell: red at three days, green once an
+appointment exists. A container waiting to load has no dwell and no demurrage risk, so folding it
+into that vocabulary would state something false about it. The `origin|` key prefix also means a port
+that is **both** an origin and a destination keeps two cards — not today's data, where load ports are
+international and discharge ports are not, but the merge would silently mix waiting boxes with landed
+ones and hand them one count.
+
+**The holder key is prefixed; the ANCHOR is not.** Cards resolve their coordinate through
+`portKey`, which is the bare `facilityKey`. Looking up the prefixed key in `portPoints` would miss
+every time and report every load port as "not matched to a port row". A load port with no
+`world_ports` row falls back to the first vertex of its own sea lane — the mirror of the `routeEnd`
+fallback a discharge card uses.
+
+**Drawn however far out the ETD is.** No horizon: a threshold would make a container silently
+invisible until it crossed one, and put the Overview's `future` count back out of step with the map.
 
 **Two-port complexes merge into one card.** `PORT_ALIASES` in [places.js](src/data/places.js) folds
 Long Beach into `Los Angeles, CA` and Port Everglades into `Miami, FL`, because each pair works as
@@ -602,10 +627,11 @@ fields and are what the polyline is looked up by, so one contradicting its own e
 marker on a line its containers are not on.
 
 **Guarded by `npm run test:grouping`** ([tools/check-voyage-grouping.mjs](tools/check-voyage-grouping.mjs)),
-83 checks over both rules — each field varied one at a time, every blank fallback, the LA/Long Beach
+100 checks over the rules — each field varied one at a time, every blank fallback, the LA/Long Beach
 fold, spelling drift, the multi-drop suite (two calls from one departure, ordering by date rather
 than row order, the itinerary surviving a discharge, a truncated chain, the tray's per-destination
-lines), `positionOnItinerary` putting the hull on the right leg, and the live fixture. Running the
+lines), `positionOnItinerary` putting the hull on the right leg, the origin cards (including a port
+that is both an origin and a destination), and the live fixture. Running the
 app demonstrates the vessel match succeeding and almost nothing else — not one of the ways either
 rule must fail, and not the rail rule at all. Every one of those failures is silent: group two
 containers that are not on one hull and you get a confident badge over a position right for only one

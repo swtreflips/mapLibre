@@ -293,6 +293,60 @@ console.log('\nposition along the itinerary\n')
     JSON.stringify(after.pos), JSON.stringify([-76.3, 36.9]))
 }
 
+// ── NOT SAILED YET: the origin card ────────────────────────────────────────────────────
+//
+// A container whose ETD is in the future used to be drawn NOWHERE. `shipmentState` returned
+// `future`, the Overview counted it and search found it, but buildHolders dropped it on
+// `state !== 'enroute'` — so a booked container was invisible on the map until the day it sailed.
+// It now sits at the port it will load from.
+console.log('\norigin cards — not sailed yet\n')
+{
+  const soon = new Date(); soon.setDate(soon.getDate() + 11)
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const notSailed = (over) => ship({ actual_shipping: ymd(soon), ...over })
+  const points = new Map([[normalizeKey('Bangkok, Thailand'), [100, 13]]])
+  const cards = (rows) => buildHolders(rows, routes, points, rails).ports
+
+  const one = cards([notSailed({ shipment: 'A' })])
+  check('a future container gets a card', one.length, 1)
+  check('...at its LOAD port, not its discharge port', one[0].name, 'Bangkok, Thailand')
+  check('...of its own kind', one[0].kind, 'origin')
+  check('...saying so', one[0].subtitle, 'Port of loading')
+  check('...anchored on the port point', JSON.stringify(one[0].coordinates), JSON.stringify([100, 13]))
+
+  check('two future boxes from one port share a card',
+    cards([notSailed({ shipment: 'A' }), notSailed({ shipment: 'B' })]).length, 1)
+  check('...holding both',
+    cards([notSailed({ shipment: 'A' }), notSailed({ shipment: 'B' })])[0].containers.length, 2)
+  check('different load ports -> different cards',
+    cards([notSailed({ shipment: 'A' }),
+           notSailed({ shipment: 'B', port_of_loading: 'Cartagena, Colombia',
+                       route: 'Cartagena, Colombia - New York, NY' })]).length, 2)
+
+  // AN ORIGIN NEVER MERGES WITH A DISCHARGE CARD, even at the same port. Not today's data — load
+  // ports are international and discharge ports are not — but the `origin|` prefix is what stops
+  // "waiting to load" and "landed" ever sharing one card and one count.
+  const both = cards([
+    notSailed({ shipment: 'A', port_of_loading: 'New York, NY', port_of_discharge: 'Los Angeles, CA',
+                Lastcy: 'Los Angeles, CA', route: 'Bangkok, Thailand - Los Angeles, CA' }),
+    ship({ shipment: 'B', actual_portdate: '2026-06-05' }), // landed at New York
+  ])
+  check('one port as both origin and destination -> two cards', both.length, 2)
+  check('...and they carry different kinds',
+    both.map((c) => c.kind).sort().join(','), 'origin,port')
+
+  // The holder key is prefixed; the ANCHOR is not. MapView resolves coordinates through portKey,
+  // and looking up the prefixed key would report every load port as unanchored.
+  check('portKey is the bare port, not the prefixed key', one[0].portKey, normalizeKey('Bangkok, Thailand'))
+  check('...while the holder key is prefixed', one[0].key.startsWith('origin|'), true)
+
+  // A load port with no row in world_ports still draws, on the first vertex of its own sea lane —
+  // the mirror of the routeEnd fallback a discharge card uses.
+  const unanchored = buildHolders([notSailed({ shipment: 'A' })], routes, new Map(), rails).ports
+  check('no port row -> falls back to the lane start',
+    JSON.stringify(unanchored[0].coordinates), JSON.stringify([100, 13]))
+}
+
 // ── vesselSplits: the diagnostic that replaced etaDisagreements ─────────────────────────
 //
 // Sharper than it was. While a holder was one voyage, a name in two places could mean two sailings
@@ -436,6 +490,16 @@ const anna = buildHolders(
 check('MSC ANNA is ONE holder', anna.length, 1)
 check('...calling once, LA and Long Beach folded', anna[0]?.calls.length, 1)
 check('...named for the complex', anna[0]?.calls[0]?.name, 'Los Angeles, CA')
+
+// BUDAPEST has not sailed: it must be an ORIGIN card at Nhava Sheva and NOT a vessel, because
+// there is no ship to draw on the water yet.
+const liveCards = buildHolders(shipments, realRoutes, new Map(), new Map()).ports
+check('BUDAPEST is not on the water', live.some((v) => v.name === 'BUDAPEST'), false)
+const nhava = liveCards.find((p) => p.name === 'Nhava Sheva, India')
+check('...it is an origin card at Nhava Sheva', nhava?.kind, 'origin')
+check('...holding its container', nhava?.containers.length, 1)
+check('...and no discharge card claims Nhava Sheva',
+  liveCards.filter((p) => p.name === 'Nhava Sheva, India').length, 1)
 
 check('no vessel is drawn twice', vesselSplits(live).length, 0)
 check('every holder has geometry to ride', live.every((v) => v.legs.length >= 1), true)

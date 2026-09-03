@@ -195,9 +195,16 @@ const railProgress = (p) => RAIL_START + p * (1 - RAIL_START)
 const MATCH_OPACITY = ['case', ['==', ['get', 'matched'], 1], 1, DIM_OPACITY]
 
 // Build the vessel FeatureCollection, the port cards, and a key->holder lookup.
-//   vessel holder -> one ship icon, interpolated along the route (remaining = dashed-line coords)
+//   vessel holder -> one ship icon, placed along its ITINERARY (remaining = one dash per leg)
+//   rail holder   -> one railcar along the inland track
 //   port holder   -> one card at the PORT's coordinate, remaining = null
-//   future        -> deferred
+//   origin holder -> the same card at the LOAD port, for containers that have not sailed yet
+//
+// `future` used to read "deferred" here, and that was the whole bug: a booked container was
+// counted in the Overview and findable by search while being drawn nowhere at all. It now gets an
+// origin card. It is a separate holder KIND rather than a port card because a facility card's
+// colour language is about dwell — red at three days, green once an appointment exists — and a box
+// waiting to load has no dwell to describe.
 //
 // ONE FEATURE PER HOLDER, not per shipment. A vessel carrying three containers is one ship on the
 // water, so it is one icon whose count badge says 3 — which is also what makes that badge honest.
@@ -427,7 +434,10 @@ function buildFeatures(shipments, routesByKey, railByKey, map, portPoints, match
       key: p.key,
       name: p.name,
       coordinates: p.coordinates,
-      anchored: Boolean(portPoints?.get(p.key)),
+      // Through `portKey`, not the holder key. An ORIGIN card is keyed `origin|<port>` so it can
+      // never merge with a discharge card at the same place, and looking that up in portPoints
+      // would miss every time — reporting every load port as "not matched to a port row".
+      anchored: Boolean(portPoints?.get(p.portKey ?? p.key)),
       statuses: p.containers.map((c) => ({ tone: containerColor(c), matched: isMatch(c) })),
       // Only for the zoomed-out bubble, which shows "2/5" rather than a stack. null with no filter
       // so the bubble knows to print a plain total.

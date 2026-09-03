@@ -176,6 +176,7 @@ export function buildHolders(shipments, routesByKey, portPoints, railByKey) {
   const vessels = new Map()
   const ports = new Map()
   const trains = new Map()
+  const origins = new Map()
 
   // ITINERARIES FIRST, over EVERY shipment — arrived and railed ones included. A sailing's calls
   // are a fact about the ship, not about whichever of its boxes happen to still be aboard, and the
@@ -233,6 +234,38 @@ export function buildHolders(shipments, routesByKey, portPoints, railByKey) {
         trains.set(key, { key, lane: s.rail_route, coords, containers: [] })
       }
       trains.get(key).containers.push(s)
+      continue
+    }
+
+    if (state === 'future') {
+      // NOT SAILED YET, so the box is sitting at the port it will load from. It used to be drawn
+      // nowhere at all — `state !== 'enroute'` dropped it here, and MapView's header said
+      // "future -> deferred" — which left it counted in the Overview and findable by search but
+      // absent from the map, the one place you would look for it.
+      //
+      // ITS OWN KIND, NOT A PORT CARD. A facility card says "these boxes have stopped and the
+      // question is what to clear next", and its whole colour language is about dwell: red at
+      // three days, green once an appointment exists. A container waiting to load has no dwell
+      // and no demurrage risk, so folding it into that vocabulary would say something false about
+      // it. The `origin|` prefix also means a port that is BOTH an origin and a destination — not
+      // in today's data, where load ports are international and discharge ports are not, but
+      // entirely possible — keeps two cards rather than merging waiting boxes with landed ones.
+      const here = s.port_of_loading
+      const pk = facilityKey(here)
+      if (!pk) continue
+      const key = `origin|${pk}`
+      if (!origins.has(key)) {
+        origins.set(key, { key, portKey: pk, name: canonicalPort(here), routeStart: null, containers: [] })
+      }
+      const g = origins.get(key)
+      // The mirror of the arrived branch's routeEnd: a fallback anchor for a load port with no row
+      // in world_ports. The sailing's first leg starts AT the origin, so its first vertex is the
+      // best guess available, and it keeps the container on the map rather than silently gone.
+      if (!g.routeStart) {
+        const c = sailings.get(sailingKey(s))?.legs[0]?.coords
+        if (c && c.length >= 2) g.routeStart = c[0]
+      }
+      g.containers.push(s)
       continue
     }
 
@@ -319,27 +352,48 @@ export function buildHolders(shipments, routesByKey, portPoints, railByKey) {
         containers: t.containers,
       }
     }),
-    ports: [...ports.values()].map((p) => {
-      p.containers.sort(byShipment)
-      return {
-        kind: 'port',
-        key: p.key,
-        name: p.name,
-        // A facility is not always a seaport now: an inland yard holds containers that finished a
-        // rail leg. The label follows the place rather than assuming the sea.
-        // Compared through facilityKey on BOTH sides, or a container whose Lastcy is Long Beach
-        // would never match a card keyed on Los Angeles.
-        subtitle: p.containers.some(
-          (c) => facilityKey(c.Lastcy) === p.key && facilityKey(c.port_of_discharge) !== p.key,
-        )
-          ? 'Inland container yard'
-          : 'Port of discharge',
-        // The PORT's own coordinate — the exact point its label is drawn at. The sea route's last
-        // vertex is a lane-graph node near the port, not the port, so it is only a fallback.
-        coordinates: portPoints?.get(p.key) ?? p.routeEnd,
-        containers: p.containers,
-      }
-    }),
+    // ORIGINS RIDE IN THE SAME ARRAY AS PORT CARDS, and that is a drawing decision rather than a
+    // modelling one: MapView's card pass takes this list and an origin wants the same geometry at
+    // the same anchor. Only the identity and the words differ — `kind: 'origin'`, an `origin|`
+    // key that cannot collide with a discharge card, and "Port of loading" beneath the name.
+    ports: [
+      ...[...origins.values()].map((o) => {
+        o.containers.sort(byShipment)
+        return {
+          kind: 'origin',
+          key: o.key,
+          // The name the ANCHOR is looked up by. It is not the holder key here, because that
+          // carries the `origin|` prefix, and MapView resolves coordinates through this.
+          portKey: o.portKey,
+          name: o.name,
+          subtitle: 'Port of loading',
+          coordinates: portPoints?.get(o.portKey) ?? o.routeStart,
+          containers: o.containers,
+        }
+      }),
+      ...[...ports.values()].map((p) => {
+        p.containers.sort(byShipment)
+        return {
+          kind: 'port',
+          key: p.key,
+          portKey: p.key,
+          name: p.name,
+          // A facility is not always a seaport now: an inland yard holds containers that finished
+          // a rail leg. The label follows the place rather than assuming the sea.
+          // Compared through facilityKey on BOTH sides, or a container whose Lastcy is Long Beach
+          // would never match a card keyed on Los Angeles.
+          subtitle: p.containers.some(
+            (c) => facilityKey(c.Lastcy) === p.key && facilityKey(c.port_of_discharge) !== p.key,
+          )
+            ? 'Inland container yard'
+            : 'Port of discharge',
+          // The PORT's own coordinate — the exact point its label is drawn at. The sea route's
+          // last vertex is a lane-graph node near the port, not the port, so it is only a fallback.
+          coordinates: portPoints?.get(p.key) ?? p.routeEnd,
+          containers: p.containers,
+        }
+      }),
+    ],
   }
 }
 

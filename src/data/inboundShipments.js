@@ -298,6 +298,36 @@ const inboundShipments = [
       { po_number: 'PO155712', item: 'KRSP-NK161204', qty: 860, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
     ],
   },
+  // TEST: NOT SAILED YET. The only container in the fixture whose ETD is in the future, which is
+  // the whole point of it — the state existed in shipmentState and in the Overview count from the
+  // start, but nothing drew it, so a booked container was invisible on the map until the day it
+  // sailed. It now sits on an ORIGIN card at Nhava Sheva (holders.js, `kind: 'origin'`).
+  //
+  // Deliberately NOT on a card with any discharge port: an origin is keyed `origin|<port>` so the
+  // two can never merge. Nhava Sheva is in INTL_PORTS, so the anchor is a real world_ports row.
+  {
+    shipment: 'INBSHIP3971',
+    container: 'TGBU5540118',
+    vessel: 'BUDAPEST',
+    confirmed_carrier: '',
+    freight_forwarder: 'Constellation Logistics LLC',
+    drayage_provider: '',
+    hbl: 'HLCUBOM2609ARTX4',
+    mbl: 'HLCUBOM2609ARTX1',
+    port_of_loading: 'Nhava Sheva, India',
+    port_of_discharge: 'Los Angeles, CA',
+    Lastcy: 'Los Angeles, CA',
+    route: 'Nhava Sheva, India - Los Angeles, CA',
+    actual_shipping: daysAhead(11), // the ETD is the point: still in the future
+    expected_portdate: daysAhead(48),
+    actual_portdate: '',
+    appointment_date: '',
+    arrival_notice: 'no',
+    last_freeday: '',
+    items: [
+      { po_number: 'PO155884', item: 'KRSP-NK161390', qty: 1420, vendor: 'Shree Ganesh Polymers Pvt. Ltd.' },
+    ],
+  },
   // TEST: the LOS ANGELES / LONG BEACH complex. Two blue containers, one at each port, which
   // places.js folds into a single card named "Los Angeles, CA" (PORT_ALIASES). The two anchors are
   // only 4.6 km apart, so without the merge their cards sit on top of each other.

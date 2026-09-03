@@ -115,19 +115,26 @@ function Overview({ stats, onCommit }) {
 // THE TRAY. A holder — a vessel, a train, or a facility — holds 1..N containers, and this is what
 // it is holding. The panel used to show one shipment because the map used to select one shipment;
 // both changed together (CLAUDE.md §8).
-const HOLDER_KIND = { vessel: 'Vessel', rail: 'Rail', port: 'Port' }
+// `origin` is a load port — boxes that have not sailed yet. It reads as a Port here because that
+// is what it is; the "Port of loading" subtitle is what separates it from a discharge card.
+const HOLDER_KIND = { vessel: 'Vessel', rail: 'Rail', port: 'Port', origin: 'Port' }
 
 function Tray({ holder, matchedIds }) {
   const n = holder.containers.length
-  // PORTS ONLY. A port tray is a worklist — red first, longest-sitting first — because
-  // everything in it has stopped and the question is what to clear next. A vessel or train
-  // tray is a manifest of things all in the same situation, so it keeps the id order the
-  // holder arrives in and stays comparable between refreshes (holders.js).
+  // FACILITIES ONLY — a discharge port or a load port. Either tray is a worklist: at a discharge
+  // port red first and longest-sitting first, because everything has stopped and the question is
+  // what to clear next; at a load port sortByPriority bands every box as `future` and orders them
+  // by ETD, so the next thing to sail is at the top. A vessel or train tray is a manifest of
+  // things all in the same situation, so it keeps the id order the holder arrives in and stays
+  // comparable between refreshes (holders.js).
   //
   // Sorted HERE rather than in holders.js deliberately: the holder object is shared with the
   // map, whose card reads the same array, and this is a question about one panel.
   const rows = useMemo(
-    () => (holder.kind === 'port' ? sortByPriority(holder.containers) : holder.containers),
+    () =>
+      holder.kind === 'port' || holder.kind === 'origin'
+        ? sortByPriority(holder.containers)
+        : holder.containers,
     [holder],
   )
   // Null for a PORT holder, which has no voyage — a facility is where boxes stop, not something
