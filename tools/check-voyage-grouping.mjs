@@ -58,6 +58,7 @@ const routes = new Map([
   [normalizeKey('New York, NY - Norfolk, VA'), [[-74, 40], [-76.3, 36.9]]],
   [normalizeKey('New York, NY - Los Angeles, CA'), [[-74, 40], [-118, 33]]],
   [normalizeKey('Nhava Sheva, India - Pipavav, India'), [[72.95, 18.95], [71.57, 20.92]]],
+  [normalizeKey('Pipavav, India - Nhava Sheva, India'), [[71.57, 20.92], [72.95, 18.95]]],
   [normalizeKey('Pipavav, India - Los Angeles, CA'), [[71.57, 20.92], [-118, 33]]],
   [normalizeKey('Nhava Sheva, India - Los Angeles, CA'), [[72.95, 18.95], [-118, 33]]],
 ])
@@ -219,8 +220,8 @@ check('...in order', multi[0].calls.map((c) => c.name).join(' > '),
 check('...over two legs', multi[0].legs.length, 2)
 check('...the second running between the two ports', multi[0].legs[1].from + ' -> ' + multi[0].legs[1].to,
   'New York, NY -> Norfolk, VA')
-check('...and the subtitle names the whole chain', multi[0].subtitle,
-  'Cartagena, Colombia → Cartagena, Colombia → New York, NY → Norfolk, VA')
+check('...and the subtitle names the whole chain, each port ONCE', multi[0].subtitle,
+  'Cartagena, Colombia → New York, NY → Norfolk, VA')
 
 // WHAT THE TRAY SHOWS: one line per destination, each named from the ORIGIN, because
 // "Cartagena -> Norfolk" is the move that was booked. The chain is how the ship gets there.
@@ -587,21 +588,27 @@ check('...discharging once, LA and Long Beach folded',
 check('...named for the complex',
   anna[0]?.calls.find((c) => c.kind === 'discharge')?.name, 'Los Angeles, CA')
 
-// BUDAPEST IS MID-LOAD: it sailed from Nhava Sheva three days ago and reaches Pipavav in four, so
+// BUDAPEST IS MID-LOAD: it sailed from Pipavav three days ago and reaches Nhava Sheva in four, so
 // one box is aboard and one is still standing on the quay. Both halves have to be true at once.
+//
+// NOTE THE ORDER IS NOT FILE ORDER. INBSHIP3971 (Nhava Sheva) is written FIRST in the fixture and
+// called SECOND, because the chain is built from the dates. A chain assembled in row order would
+// pass on any fixture where the two happen to agree; this one is arranged so it cannot.
 const liveCards = buildHolders(shipments, realRoutes, new Map(), new Map()).ports
 const budapest = live.find((v) => v.name === 'BUDAPEST')
 check('BUDAPEST is on the water', Boolean(budapest), true)
 check('...carrying only the box that has loaded', budapest?.containers.length, 1)
+check('...which is the PIPAVAV box, the one that has sailed',
+  budapest?.containers[0]?.port_of_loading, 'Pipavav, India')
 check('...over an itinerary of two loads and a discharge', budapest?.calls.length, 3)
-check('...Nhava Sheva, Pipavav, then Los Angeles',
+check('...Pipavav, Nhava Sheva, then Los Angeles',
   budapest?.calls.map((c) => c.name).join(' > '),
-  'Nhava Sheva, India > Pipavav, India > Los Angeles, CA')
-check('...on the leg to Pipavav', budapest?.legs[0]?.to, 'Pipavav, India')
-const pipavav = liveCards.find((p) => p.name === 'Pipavav, India')
-check('...while the box not yet loaded waits at Pipavav', pipavav?.kind, 'origin')
-check('...on its own card', pipavav?.containers.length, 1)
-check('...and Nhava Sheva has no card left', liveCards.some((p) => p.name === 'Nhava Sheva, India'), false)
+  'Pipavav, India > Nhava Sheva, India > Los Angeles, CA')
+check('...on the leg to Nhava Sheva', budapest?.legs[0]?.to, 'Nhava Sheva, India')
+const nhava = liveCards.find((p) => p.name === 'Nhava Sheva, India')
+check('...while the box not yet loaded waits at Nhava Sheva', nhava?.kind, 'origin')
+check('...on its own card', nhava?.containers.length, 1)
+check('...and Pipavav has no card left', liveCards.some((p) => p.name === 'Pipavav, India'), false)
 
 check('no vessel is drawn twice', vesselSplits(live).length, 0)
 check('every holder has geometry to ride', live.every((v) => v.legs.length >= 1), true)

@@ -298,19 +298,23 @@ const inboundShipments = [
       { po_number: 'PO155712', item: 'KRSP-NK161204', qty: 860, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
     ],
   },
-  // TEST: A SAILING THAT LOADS AT TWO PORTS. BUDAPEST works up the Indian coast — Nhava Sheva
-  // first, Pipavav a week later — then crosses to Los Angeles. Two calls at the ORIGIN end, the
-  // mirror of CAUTIN's two calls at the discharge end.
+  // TEST: A SAILING THAT LOADS AT TWO PORTS. BUDAPEST works down the Indian coast — Pipavav first,
+  // Nhava Sheva a week later — then crosses to Los Angeles. Two calls at the ORIGIN end, the mirror
+  // of CAUTIN's two calls at the discharge end.
   //
   // The dates put it MID-LOAD on purpose, which is the only state where every part of the
   // behaviour is visible at once:
   //
-  //   3971  Nhava Sheva  ETD 3 days ago    -> enroute, aboard, badge 1
-  //   3972  Pipavav      ETD in 4 days     -> future, waiting on an ORIGIN card at Pipavav
-  //   ship                                 -> on leg 1, Nhava Sheva -> Pipavav (460.4 km)
+  //   3972  Pipavav      ETD 3 days ago    -> enroute, aboard, badge 1
+  //   3971  Nhava Sheva  ETD in 4 days     -> future, waiting on an ORIGIN card at Nhava Sheva
+  //   ship                                 -> on leg 1, Pipavav -> Nhava Sheva (460.4 km)
   //
-  // Once 3972's ETD passes the badge becomes 2 and the Pipavav card empties, with no special case
-  // anywhere: loading is just a container ceasing to be `future`.
+  // Once 3971's ETD passes the badge becomes 2 and the Nhava Sheva card empties, with no special
+  // case anywhere: loading is just a container ceasing to be `future`.
+  //
+  // THE ORDER COMES FROM THE DATES, NOT FROM ROW ORDER — 3971 is written first and called second.
+  // That is worth having in the fixture: a chain assembled in file order would look identical on
+  // the old Nhava-Sheva-first data and wrong here.
   //
   // The two rows have a DIFFERENT port of loading AND a different ETD, so no key built from one
   // row could group them — this is the fixture that forced holders.js to cluster per vessel
@@ -329,7 +333,7 @@ const inboundShipments = [
     port_of_discharge: 'Los Angeles, CA',
     Lastcy: 'Los Angeles, CA',
     route: 'Nhava Sheva, India - Los Angeles, CA',
-    actual_shipping: daysAgo(3), // sailed: the ship has left Nhava Sheva
+    actual_shipping: daysAhead(4), // NOT sailed: still waiting for the ship to reach Nhava Sheva
     expected_portdate: daysAhead(34),
     actual_portdate: '',
     appointment_date: '',
@@ -352,7 +356,7 @@ const inboundShipments = [
     port_of_discharge: 'Los Angeles, CA',
     Lastcy: 'Los Angeles, CA',
     route: 'Pipavav, India - Los Angeles, CA',
-    actual_shipping: daysAhead(4), // NOT sailed: still waiting for the ship to reach Pipavav
+    actual_shipping: daysAgo(3), // sailed: the ship has left Pipavav
     expected_portdate: daysAhead(34),
     actual_portdate: '',
     appointment_date: '',

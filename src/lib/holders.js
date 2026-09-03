@@ -370,9 +370,13 @@ export function buildHolders(shipments, routesByKey, portPoints, railByKey) {
         kind: 'vessel',
         key: itinerary.key,
         name: itinerary.name || '(unnamed vessel)',
-        // The whole chain. Used by the DEV logs and the missing-leg warning; the TRAY shows
-        // `manifest` instead, which answers the question a reader actually has.
-        subtitle: [itinerary.pol, ...itinerary.calls.map((c) => c.name)].join(' → '),
+        // The whole chain — the CALLS alone. It used to be `[pol, ...calls]`, from when the port of
+        // loading sat outside the call list; now that loading IS the first call, that spelled the
+        // first port twice ("Cartagena → Cartagena → New York → Norfolk").
+        //
+        // Used by the DEV logs and the missing-leg warning; the TRAY shows `manifest` instead,
+        // which answers the question a reader actually has.
+        subtitle: itinerary.calls.map((c) => c.name).join(' → '),
         // ONE LINE PER LANE ABOARD, with what is on it:
         //
         //     Cartagena, Colombia - New York, NY    3 containers
