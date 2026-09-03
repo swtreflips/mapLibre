@@ -176,6 +176,12 @@ Leaflet source; convert to `[lng, lat]` when you port them.
 `progress = (today - startDate) / (endDate - startDate)`, clamped to `[0, 1]`.
 Then find the point at fractional distance `progress` along the polyline:
 
+> **Once per LEG, not once per voyage.** A sailing that calls at several ports is a chain of legs
+> (§8), and `positionOnItinerary` picks the leg today falls in before running exactly the maths
+> below within it. There is no new geometry — the multi-drop case is the single-lane case applied
+> one leg at a time. `remaining` becomes one coordinate array **per remaining leg**, which is why
+> selecting a ship short of its first call draws two dashed lines rather than one.
+
 1. Total length = sum of **Haversine** distances between consecutive waypoints.
 2. Target distance = `total * progress`.
 3. Walk segments accumulating length; in the segment where the running sum first reaches
@@ -474,7 +480,7 @@ Clicking either fills the sidebar with a **tray** — one card per container it 
 
 | holder | grouped by | anchored at |
 |---|---|---|
-| vessel | `vessel + ETD + ETA + POL + POD` — a **voyage**, not a name (see below) | interpolated position (§5.1) |
+| vessel | `vessel + POL + ETD` — a **sailing**, not a name and not a lane (see below) | interpolated along its **itinerary** (§5.1) |
 | rail | `POD + Lastcy + actual_portdate + expected_lastcy_date` — a **movement**, not a lane | interpolated along the rail lane (§7) |
 | port | `port_of_discharge` | the port's own coordinate (§5.4) |
 
@@ -489,50 +495,90 @@ card keyed on Los Angeles otherwise.
 every container card in the tray still names the port its box is actually at. The alias VALUE must
 be a real `us_ports` row or the merged card has nothing to anchor to.
 
-**A VOYAGE IS `vessel + actual_shipping + expected_portdate + port_of_loading + port_of_discharge`.**
-All five, or the container gets its own hull. Same ship on different dates is a different sailing,
-and the same ship on the same dates between different ports is a different leg.
+**A SAILING IS `vessel + port_of_loading + actual_shipping`.** All three, or the container gets its
+own hull. The same ship leaving the same port on a different day is a different sailing.
 
-**The ports are what make the group safe to DRAW.** The first three identify the sailing, but a
-holder is positioned along a *polyline*, looked up by lane. Without the ports, one voyage could
-collect containers booked on two lanes — and since only one polyline can carry the icon, the rest
-would be drawn on a route they are not on. That hole existed for one commit, papered over with a
-DEV warning; keying on the ports closes it instead.
+**A SHIP DISCHARGES AT MORE THAN ONE PORT, and that is the whole reason this key is three fields
+and not five.** It used to include ETA and POD as well. Two boxes loaded together at Cartagena can
+come off at New York on 4 Oct and at Norfolk on 13 Oct — one hull, one departure, two calls — and
+keying on the POD split that into **two markers with the same name**, at two different points, the
+second drawn on a direct Cartagena → Norfolk lane the ship never sails. The several PODs are not
+several voyages. They are this sailing's **itinerary**.
 
-**Ports go through `normalizeKey`, NOT `facilityKey` — the opposite of the rule everywhere else.**
-§8 otherwise says to use `facilityKey` on both sides of any port comparison, because it folds a
-two-port complex into one name. That is right for a CARD: Long Beach and Los Angeles are 4.6 km
-apart and one gateway. It is wrong here — `Bangkok - Long Beach` and `Bangkok - Los Angeles` are two
-different polylines, so folding them would merge exactly the containers this key exists to separate
-and hand the group one lane out of two. Normalizing (not folding) still absorbs the spelling drift
-the port data really has (`Singapore` / `SINGAPORE` / `Singapore, Singapore`, §4).
+**ETD still pins the sailing**, which is what makes dropping the other two safe. WAN HAI 272 appears
+in the fixture twice, ETDs three months apart, and stays two hulls. What ETD does *not* do is
+separate two boxes that genuinely sailed together.
 
-This replaced `vessel + route`, which grouped on the LANE — so every container Cartagena → New York
-aboard a "CAUTIN" was asserted to be on one hull whatever its dates said. The fixture had three such
-containers with ETAs a month apart, and **that assertion was what the "3 containers" badge counted**.
-The grouping was fabricated to give the badge a number bigger than 1.
+### The itinerary
 
-**The dates are compared as RAW STRINGS.** They are the same `YYYY-MM-DD` field from the same feed,
-so equal voyages give equal keys; parsing first would only add a way for two identical strings to
-disagree.
+`buildItinerary` turns a sailing's discharge ports into ordered **calls** and the **legs** between
+them. Four rules, each of which is a way of getting it wrong:
 
-**Any of the five missing falls back to the shipment id**, so that row stands alone. This is the rule
-being honest rather than an exception to it: unnamed rows would otherwise collapse into one ghost
-ship, and two unknown dates are not the same date — grouping on a blank would put containers on a
-hull because of what the feed failed to say about them.
+1. **Built from every shipment on the sailing, in any state — not just the en-route ones.** Once the
+   New York box reports an `actual_portdate` it stops being `enroute` and leaves the holder. If the
+   itinerary were assembled from the manifest, the call would leave with it and the ship would snap
+   back onto a direct line to Norfolk. **The manifest shrinks as boxes come off; the itinerary does
+   not.**
+2. **One call per port complex, through `facilityKey`** — the same fold used for cards and for the
+   rail-leg test. This REVERSES the old rule, which kept Long Beach and Los Angeles apart because a
+   holder could only ride one polyline. An itinerary has a leg per call, so that reason is gone, and
+   keeping them apart now costs a spurious **13.6 km leg across one harbour** ordered by two ETAs a
+   day apart. MSC ANNA in the fixture is exactly that case.
+3. **`actual_portdate` dates a call that has happened, `expected_portdate` one that has not**, and
+   calls are ordered by that date. Two containers discharging at one port on different reported days
+   put the call at the **later** of them: a ship leaves when the last box is off.
+4. **Legs are looked up by their two port NAMES**, `"<from> - <to>"`, not from a container's derived
+   `route` field. For a single-call sailing the two strings are identical. For a multi-drop they
+   differ on purpose — the Norfolk box's `route` says Cartagena → Norfolk, and the ship's real path
+   is what has to be drawn. The port-to-port legs are real geometry: the full 1,056-pair US/Canada
+   matrix is in `sea_routes`, so `New York, NY - Norfolk, VA` is a 568.9 km line, not a guess.
 
-**This deleted `voyageEta` / `voyageEtd` / `etaDisagreements`.** Those existed to reconcile a group
-that could legitimately disagree — it took the latest `expected_portdate` and logged the conflict.
-The dates are now two thirds of the key, so a group *cannot* disagree with itself, and the holder
-reads its dates off `containers[0]` exactly as the rail branch always did. **The disagreement did
-not vanish, it moved:** it now shows as one ship name standing in two places, which `vesselSplits`
-reports to the DEV log. Often that is simply true — a ship really does sail many voyages.
+**A missing leg truncates the chain; it does not delete the ship.** Keep the calls that resolve, hold
+the hull at the last reachable one, and set `missingLeg` for MapView to warn on. The containers are
+still aboard and still in the tray — the map has only stopped claiming a path it has no geometry
+for. A missing **first** leg still yields no holder, which is the old "no route, no marker" rule.
 
-**The holder still carries `lanes`, now guarding a narrower fault.** Containers in a group agree on
-POL and POD by construction — but `route` is a *separate, derived* field ("POL - POD", assembled
-upstream) and it is what the polyline is actually looked up by. If it disagrees with the ports it was
-built from, the group is drawn on a lane its own ports contradict. MapView **warns** when `lanes`
-exceeds 1 — louder than the split log, because a split is usually true whereas this is always a fault.
+**`activeLegAt` decides which leg the ship is on, and BOTH `holders.js` and `MapView` call it** —
+holders for the tray's `etd`/`eta`, MapView for the icon. One function, because a second copy is
+exactly how the stats panel and the map came to disagree about `arrived`: the tray would name one
+leg's dates while the hull sat on another's. The holder's `etd`/`eta` therefore describe the
+**current leg** — past New York, the ship departed New York and is due at Norfolk.
+
+**A blank POL is fatal, a blank ETD is not.** Without an origin there is no first leg to look up.
+Without a departure date the lane is perfectly known and only the progress along it is not, so the
+leg is built with a null start, `computeProgress` returns 0, and the hull sits at the load port. The
+alternative would take the container off the map altogether — it is `enroute`, so no port card would
+catch it either.
+
+**The dates are compared as RAW STRINGS** in the key. Same `YYYY-MM-DD` field, same feed, so equal
+sailings give equal keys; parsing first would only add a way for two identical strings to disagree.
+
+**Any of the three missing falls back to the shipment id**, so that row stands alone. Unnamed rows
+would otherwise collapse into one ghost ship, and two unknown dates are not the same date.
+
+**The tray shows one line per DESTINATION, not the joined chain** — `holder.manifest`:
+
+```
+Cartagena, Colombia - New York, NY    3 containers
+Cartagena, Colombia - Norfolk, VA     1 container
+```
+
+Each line names the lane **from the origin**, because that is the move that was booked and what a
+reader is holding in their head; the chain is merely how the ship gets there. A call with nothing
+left aboard drops out, so the tray reads as work outstanding rather than history. `subtitle` still
+carries the full chain and is what the DEV logs print.
+
+**`vesselSplits` got sharper.** While a holder was one voyage, one name in two places could mean
+"two sailings" *or* "one sailing cut in half by its own PODs", and the log could not tell you which.
+Now a sailing carries its whole itinerary, so only the first reading survives: two holders of one
+name are two departures. Often simply true — a ship really does sail many voyages.
+
+**The `lanes` mixed-lane warning is gone, replaced by the missing-leg warning.** It fired when a
+holder's containers named more than one `route`, which was a fault while a holder rode one polyline.
+A multi-drop names a different lane per container *by design*, so that check would now cry wolf on
+every one. What actually degrades the drawing is a leg with no geometry, and that is what MapView
+warns about. The rail side keeps `lanes` unchanged — a train is still one lane, and `rail_route` is
+still a derived field that can contradict its own endpoints.
 
 **THE INLAND LEG GROUPS THE SAME WAY, ONE LEG LOWER:**
 `port_of_discharge + Lastcy + actual_portdate + expected_lastcy_date`. Four fields rather than five
@@ -556,13 +602,14 @@ fields and are what the polyline is looked up by, so one contradicting its own e
 marker on a line its containers are not on.
 
 **Guarded by `npm run test:grouping`** ([tools/check-voyage-grouping.mjs](tools/check-voyage-grouping.mjs)),
-46 checks over both rules — each field varied one at a time, every blank fallback, the LA/Long Beach
-non-folding, spelling drift, and the live fixture. The fixture holds exactly one multi-container
-voyage and one single-container rail leg, so running the app demonstrates the vessel match succeeding
-and almost nothing else — not one of the ways either rule must fail, and not the rail rule at all.
-Every one of those failures is silent: group two containers that are not on one hull and you get a
-confident badge over a position right for only one of them; split two that are, and the marker
-appears twice. Neither throws, and neither looks wrong.
+83 checks over both rules — each field varied one at a time, every blank fallback, the LA/Long Beach
+fold, spelling drift, the multi-drop suite (two calls from one departure, ordering by date rather
+than row order, the itinerary surviving a discharge, a truncated chain, the tray's per-destination
+lines), `positionOnItinerary` putting the hull on the right leg, and the live fixture. Running the
+app demonstrates the vessel match succeeding and almost nothing else — not one of the ways either
+rule must fail, and not the rail rule at all. Every one of those failures is silent: group two
+containers that are not on one hull and you get a confident badge over a position right for only one
+of them; split two that are, and the marker appears twice. Neither throws, and neither looks wrong.
 
 **One feature per holder**, so a vessel carrying three containers is one icon whose badge reads 3.
 That badge was a hardcoded `MOCK_CONTAINER_COUNT = 7` for several iterations while every vessel in

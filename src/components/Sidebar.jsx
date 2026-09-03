@@ -142,12 +142,28 @@ function Tray({ holder, matchedIds }) {
             rail leg — so holders.js decides that word and this only has to name the kind. */}
         <p className="tray__kind">{HOLDER_KIND[holder.kind] ?? 'Port'}</p>
         <h3 className="tray__name">{holder.name}</h3>
-        <p className="tray__meta">
-          {holder.subtitle}
-          <span className="tray__count">
-            {n} container{n === 1 ? '' : 's'}
-          </span>
-        </p>
+        {/* A VESSEL GETS ONE LINE PER DESTINATION, a facility or a train gets one line total.
+            A ship calling at two ports is carrying two deliveries, and rolling them into a single
+            "4 containers" against a joined chain hides which boxes come off where — the one thing
+            a reader wants from a multi-drop. holders.js builds `manifest` and drops any call with
+            nothing left aboard, so this stays a list of work outstanding. */}
+        {holder.manifest?.length ? (
+          holder.manifest.map((m) => (
+            <p className="tray__meta" key={m.key}>
+              {m.lane}
+              <span className="tray__count">
+                {m.count} container{m.count === 1 ? '' : 's'}
+              </span>
+            </p>
+          ))
+        ) : (
+          <p className="tray__meta">
+            {holder.subtitle}
+            <span className="tray__count">
+              {n} container{n === 1 ? '' : 's'}
+            </span>
+          </p>
+        )}
         {/* THE ETA SHOWS IN EVERY PHASE, including "departed". The phrase answers how soon, the
             date answers on what day, and the whole point of this line is that neither should cost
             anyone a calculation. */}

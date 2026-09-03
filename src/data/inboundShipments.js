@@ -253,13 +253,49 @@ const inboundShipments = [
     Lastcy: 'New York, NY',
     route: 'Cartagena, Colombia - New York, NY',
     actual_shipping: daysAgo(83),
-    expected_portdate: daysAhead(31), // one voyage with 3904/3951 — vessel + ETD + ETA all match
+    expected_portdate: daysAhead(31), // one sailing with 3904/3951 — vessel + POL + ETD all match
     actual_portdate: '',
     appointment_date: '',
     arrival_notice: 'yes',
     last_freeday: '',
     items: [
       { po_number: 'PO155563', item: 'KRSP-NK161118', qty: 1180, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
+    ],
+  },
+  // TEST: the MULTI-DROP SAILING. Same hull, same origin and the same departure as 3904 / 3951 /
+  // 3952 — and a different discharge port, nine days further on. CAUTIN calls at New York, drops
+  // three boxes, then carries this one down to Norfolk.
+  //
+  // Grouped on vessel + POL + ETD (holders.js), so all four are ONE marker: badge 4 while the ship
+  // is short of New York, badge 1 once those three report an actual_portdate.
+  //
+  // Its `route` says Cartagena -> Norfolk and is deliberately NOT what the ship is drawn on. The
+  // itinerary is Cartagena -> New York -> Norfolk, and that second leg is real geometry from the
+  // US matrix now in sea_routes (568.9 km, 23 points).
+  //
+  // Under the old five-field voyage key this row was a SECOND CAUTIN, standing alone on a direct
+  // Cartagena -> Norfolk line the ship never sails. That is the bug it exists to hold shut.
+  {
+    shipment: 'INBSHIP3953',
+    container: 'HLBU2401993',
+    vessel: 'CAUTIN',
+    confirmed_carrier: 'HPL',
+    freight_forwarder: 'Constellation Logistics LLC',
+    drayage_provider: '',
+    hbl: 'HLCUSGN2603ARQS4',
+    mbl: 'HLCUSGN2603ARQS1',
+    port_of_loading: 'Cartagena, Colombia',
+    port_of_discharge: 'Norfolk, VA',
+    Lastcy: 'Norfolk, VA',
+    route: 'Cartagena, Colombia - Norfolk, VA',
+    actual_shipping: daysAgo(83), // the same sailing as 3904 / 3951 / 3952
+    expected_portdate: daysAhead(40), // the SECOND call, 9 days after New York's daysAhead(31)
+    actual_portdate: '',
+    appointment_date: '',
+    arrival_notice: 'no',
+    last_freeday: '',
+    items: [
+      { po_number: 'PO155712', item: 'KRSP-NK161204', qty: 860, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
     ],
   },
   // TEST: the LOS ANGELES / LONG BEACH complex. Two blue containers, one at each port, which

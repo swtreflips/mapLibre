@@ -7,6 +7,7 @@ import LoadingScreen from './LoadingScreen'
 import {
   computeProgress,
   positionAtProgress,
+  positionOnItinerary,
   computeBearing,
   containerColor,
 } from '../lib/vesselMath'
@@ -148,6 +149,26 @@ const computeMinZoom = (width) => Math.log2(width / 512)
 
 const EMPTY_FC = { type: 'FeatureCollection', features: [] }
 
+// The dashed track ahead of a selected holder: ONE LINE PER REMAINING LEG.
+//
+// A collection rather than a single LineString because a multi-drop sailing has several routes
+// left, not one long one — a ship short of New York still has Cartagena -> New York AND
+// New York -> Norfolk in front of it, and they are separate voyages of the searoute graph. Joining
+// them end to end would also invent a vertex-to-vertex join across the port itself.
+//
+// `remaining` is `number[][][]` (leg -> coordinate -> lng/lat).
+//
+// A leg is dropped unless it has two points that actually DIFFER. Two cases produce a line with no
+// length: fewer than two coordinates, and — the one that really happens — a leg the ship has just
+// finished, where the remainder is the final vertex twice over. On the day a ship makes a call that
+// would put a zero-length dash on top of the port card for the rest of the day.
+const remainingFC = (remaining) => {
+  const features = (remaining ?? [])
+    .filter((c) => c?.length >= 2 && c.some((p) => p[0] !== c[0][0] || p[1] !== c[0][1]))
+    .map((coords) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }))
+  return features.length ? { type: 'FeatureCollection', features } : EMPTY_FC
+}
+
 // The rail leg is drawn starting 3% along its lane, not at the port itself.
 //
 // A container that has just cleared its port is geometrically AT the port, which parks the railcar
@@ -166,7 +187,6 @@ const EMPTY_FC = { type: 'FeatureCollection', features: [] }
 // what relaxOverlaps in src/map/declutter.js already does for close ports.
 const RAIL_START = 0.03
 const railProgress = (p) => RAIL_START + p * (1 - RAIL_START)
-
 
 
 // Search dimming for the vessel layer, sharing the port card's constant so a ghosted ship and a
@@ -331,18 +351,20 @@ function buildFeatures(shipments, routesByKey, railByKey, map, portPoints, match
   const byId = new Map()
 
   for (const v of vessels) {
-    // The voyage's own dates, not any one container's — a ship is in one place, so rows that
-    // disagree resolve to one position rather than smearing the vessel across the ocean.
-    const progress = computeProgress(v.etd, v.eta)
-    const { pos, cut } = positionAtProgress(v.coords, progress)
-    if (!pos) continue
-    const next = v.coords[Math.min(cut + 1, v.coords.length - 1)]
-    const bearing = computeBearing(pos, next)
+    // ALONG THE ITINERARY, not along one lane. A sailing that calls at several ports is one hull
+    // working down a chain of legs, and positionOnItinerary picks the leg today falls in before
+    // interpolating within it — the same computeProgress / positionAtProgress underneath, applied
+    // one leg at a time. holders.js sets the holder's etd/eta from the SAME activeLegAt, so the
+    // tray's "ETA 4 Oct" and the hull's position can never describe different legs.
+    const at = positionOnItinerary(v.legs)
+    if (!at) continue
+    const bearing = computeBearing(at.pos, at.next)
+    const pos = at.pos
     // Arrival notice is a per-container fact but the hull is one object, so ANY container having
     // it turns the ship green. That matches what the colour is for — "something has landed at the
     // far end" — and a per-container breakdown is what the tray is for.
     const notified = v.containers.some((c) => c.arrival_notice?.toLowerCase() === 'yes')
-    byId.set(v.key, { holder: v, remaining: [pos, ...v.coords.slice(cut + 1)] })
+    byId.set(v.key, { holder: v, remaining: at.remaining })
     shipFeatures.push({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: pos },
@@ -831,12 +853,12 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
         if (!entry) return
         selectedIdRef.current = key
         onSelect?.(entry.holder)
-        map.getSource('remaining-route').setData(
-          entry.remaining
-            ? { type: 'Feature', geometry: { type: 'LineString', coordinates: entry.remaining }, properties: {} }
-            : EMPTY_FC,
-        )
-        const center = entry.holder.coordinates ?? entry.remaining?.[0]
+        map.getSource('remaining-route').setData(remainingFC(entry.remaining))
+        // `remaining[0][0]` — the first point of the FIRST REMAINING LEG, which is the ship itself.
+        // It was `remaining[0]` while a holder had one flat coordinate array; left alone that now
+        // hands flyTo a whole leg instead of a point, and MapLibre reads the first two numbers of
+        // whatever it is given rather than throwing.
+        const center = entry.holder.coordinates ?? entry.remaining?.[0]?.[0]
         if (center) {
           map.flyTo({ center, zoom: Math.max(map.getZoom(), SELECT_ZOOM), duration: 800 })
         }
@@ -896,11 +918,11 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
   }, [mapReady, usPorts, intlPorts])
 
 
-
   // Where the port cards get anchored: the ports' own coordinates, the same ones the labels above
   // are drawn at. Memoized because it is a dependency of the rebuild effect — rebuilt inline it
   // would be a new object every render and re-run the whole vessel pass on each one.
   const portPoints = useMemo(() => portPointsByKey({ usPorts, intlPorts }), [usPorts, intlPorts])
+
 
   // --- Build / refresh positions when data is ready (no animation; CLAUDE.md §6). ---
   // Recompute on zoomend so the pixel-space container spiral stays a constant on-screen size.
@@ -928,11 +950,7 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
       // Keep the dashed line in sync if the selected ship still exists (containers have none).
       const selId = selectedIdRef.current
       const entry = selId ? byId.get(selId) : null
-      map.getSource('remaining-route')?.setData(
-        entry?.remaining
-          ? { type: 'Feature', geometry: { type: 'LineString', coordinates: entry.remaining }, properties: {} }
-          : EMPTY_FC,
-      )
+      map.getSource('remaining-route')?.setData(remainingFC(entry?.remaining))
 
       if (import.meta.env.DEV) {
         const boxes = ports.reduce((n, p) => n + p.statuses.length, 0)
@@ -944,26 +962,31 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
           `[MapView] ${shipFC.features.length} vessel holders, ${ports.length} port cards (${boxes} containers)` +
             (adrift.length ? ` — ${adrift.length} not matched to a port row: ${adrift.join(', ')}` : ''),
         )
-        // One ship name drawn in more than one place. Containers group by vessel + ETD + ETA
-        // (holders.js), so a name appearing twice means two sailings — which is often simply true,
-        // and is worth naming either way because the map is showing the same ship twice.
-        // A group whose containers name more than one lane. Both keys pin the ENDPOINTS
-        // (holders.js), so the group already agrees on its ports — but `route` / `rail_route`
-        // are separate derived fields, and they are what the polyline is looked up by. A route
-        // contradicting its own endpoints puts the marker on a line its containers are not on.
-        // Louder than the split log below, because a split is usually just true whereas this is
-        // always a data fault. Covers rail as well as sea: the two share the failure exactly.
+        // A SAILING WHOSE ITINERARY RAN OUT OF GEOMETRY. `sea_routes` had no leg between two of
+        // its calls, so holders.js truncated the chain there and the hull holds at the last port
+        // it can reach. The containers are still aboard and still in the tray — the map has simply
+        // stopped claiming a path it cannot draw, and that silence is what this says out loud.
+        //
+        // This replaced the mixed-lane warning, which fired when a holder's containers named more
+        // than one `route`. That was a fault while a holder was one voyage on one polyline; a
+        // multi-drop names a different lane per container BY DESIGN, so the old check would have
+        // cried wolf on every one of them. A missing leg is what actually degrades the drawing now.
         for (const h of [...byId.values()].map((e) => e.holder)) {
-          if ((h.kind === 'vessel' || h.kind === 'rail') && h.lanes?.length > 1) {
-            const c = h.containers[0]
-            const span =
-              h.kind === 'rail'
-                ? `${c.actual_portdate}->${c.expected_lastcy_date}`
-                : `${c.actual_shipping}->${c.expected_portdate}`
+          if (h.kind === 'vessel' && h.missingLeg) {
             console.warn(
-              `[MapView] ${h.kind} ${h.name} (${span}) mixes ${h.lanes.length} lanes ` +
-                `(${h.lanes.join(' | ')}); all ${h.containers.length} containers are drawn on ` +
-                `${h.kind === 'rail' ? h.name : h.subtitle}.`,
+              `[MapView] ${h.name} (${h.subtitle}) has no sea_routes leg for "${h.missingLeg}"; ` +
+                `drawn only as far as ${h.legs[h.legs.length - 1]?.to ?? h.pol}, still carrying ` +
+                `${h.containers.length} container(s).`,
+            )
+          }
+          // Same failure on the rail side, where a holder is still one lane and `rail_route` is
+          // still a separate derived field from the two endpoints it should agree with.
+          if (h.kind === 'rail' && h.lanes?.length > 1) {
+            const c = h.containers[0]
+            console.warn(
+              `[MapView] rail ${h.name} (${c.actual_portdate}->${c.expected_lastcy_date}) mixes ` +
+                `${h.lanes.length} lanes (${h.lanes.join(' | ')}); all ${h.containers.length} ` +
+                `containers are drawn on ${h.name}.`,
             )
           }
         }

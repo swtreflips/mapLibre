@@ -106,6 +106,79 @@ export function positionAtProgress(coords, progress) {
   return { pos: coords[coords.length - 1], cut: coords.length - 2 }
 }
 
+// ── The itinerary: a sailing that calls at more than one port ─────────────────────────
+//
+// A ship discharges at several places. Two boxes loaded together can come off at New York and at
+// Norfolk nine days apart, and that is ONE hull making TWO calls — not two voyages, which is what
+// the map drew before holders.js started grouping on the sailing.
+//
+// A LEG is `{ from, to, coords, start, end }`: the run between two consecutive calls, its polyline,
+// and the two dates that bound it. holders.js builds them; these two functions are the only place
+// that decides which one a ship is on, and BOTH holders.js and MapView call them. A second copy of
+// that decision is exactly how the stats panel and the map came to disagree about `arrived`
+// (CLAUDE.md §8) — the tray would then name one leg's dates while the hull sat on another's.
+
+/**
+ * Which leg the ship is on today, and how far along it.
+ *
+ * THE FIRST LEG WHOSE END HAS NOT PASSED. A call date is the day the ship is AT that port, so on
+ * the day itself the answer is "leg 1, arrived" rather than "leg 2, just departed" — the two put
+ * the marker in the same place, and the first is what the tray should say.
+ *
+ * @returns {{index:number, leg:object, progress:number}|null}
+ */
+export function activeLegAt(legs, today = new Date()) {
+  if (!legs?.length) return null
+  const mid = midnight(today)
+  for (let i = 0; i < legs.length; i++) {
+    if (legs[i].end && mid <= legs[i].end) {
+      return { index: i, leg: legs[i], progress: computeProgress(legs[i].start, legs[i].end, today) }
+    }
+  }
+  // Past every call. Reachable while a box is still aboard with no arrival reported — an honest
+  // "at the last port we know about" rather than a position off the end of the line.
+  const last = legs.length - 1
+  return { index: last, leg: legs[last], progress: 1 }
+}
+
+/**
+ * Where the ship is, which way it points, and the track it has left.
+ *
+ * Reuses computeProgress and positionAtProgress unchanged — one leg at a time is the same problem
+ * the single-lane voyage always was, so there is no new geometry here.
+ *
+ * @returns {{pos:number[], next:number[], index:number, remaining:number[][][]}|null}
+ *   `remaining` is one coordinate array PER LEG: the current leg from the ship onward, then each
+ *   whole leg after it. Kept as separate lines rather than concatenated so a multi-drop draws as
+ *   the several routes it is.
+ */
+export function positionOnItinerary(legs, today = new Date()) {
+  const active = activeLegAt(legs, today)
+  if (!active) return null
+  const coords = active.leg.coords
+  const { pos, cut } = positionAtProgress(coords, active.progress)
+  if (!pos) return null
+
+  // The heading. At the end of a leg the next vertex IS the ship, and computeBearing of a point
+  // against itself is 0 — every ship sitting at a port would point due north. Look into the
+  // following leg instead, past its first vertex because that vertex is the port it is leaving.
+  let next = coords[Math.min(cut + 1, coords.length - 1)]
+  if (next[0] === pos[0] && next[1] === pos[1]) {
+    const onward = legs[active.index + 1]?.coords
+    next = onward?.[1] ?? onward?.[0] ?? next
+  }
+
+  return {
+    pos,
+    next,
+    index: active.index,
+    remaining: [
+      [pos, ...coords.slice(cut + 1)],
+      ...legs.slice(active.index + 1).map((l) => l.coords),
+    ],
+  }
+}
+
 // Golden-angle spiral offset for containers sharing a port (CLAUDE.md §5.4).
 // index 0 = exactly on the port; radius compresses past zoom 7. p = [lng, lat].
 export function applyContainerOffset([lng, lat], zoom, index = 0) {
