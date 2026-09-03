@@ -520,43 +520,64 @@ card keyed on Los Angeles otherwise.
 every container card in the tray still names the port its box is actually at. The alias VALUE must
 be a real `us_ports` row or the merged card has nothing to anchor to.
 
-**A SAILING IS `vessel + port_of_loading + actual_shipping`.** All three, or the container gets its
-own hull. The same ship leaving the same port on a different day is a different sailing.
+**A SAILING IS A CLUSTER, NOT A KEY**, and that is the single most surprising thing in this file.
+`assignSailings` groups per vessel and splits the run wherever two consecutive load dates are more
+than **`LOAD_WINDOW_DAYS` (21)** apart.
 
-**A SHIP DISCHARGES AT MORE THAN ONE PORT, and that is the whole reason this key is three fields
-and not five.** It used to include ETA and POD as well. Two boxes loaded together at Cartagena can
-come off at New York on 4 Oct and at Norfolk on 13 Oct — one hull, one departure, two calls — and
-keying on the POD split that into **two markers with the same name**, at two different points, the
-second drawn on a direct Cartagena → Norfolk lane the ship never sails. The several PODs are not
-several voyages. They are this sailing's **itinerary**.
+**A SHIP CALLS AT MORE THAN ONE PORT AT BOTH ENDS.** It discharges at New York and again at Norfolk
+nine days later; it loads at Nhava Sheva and again at Pipavav seven days later. Both broke a
+different key:
 
-**ETD still pins the sailing**, which is what makes dropping the other two safe. WAN HAI 272 appears
-in the fixture twice, ETDs three months apart, and stays two hulls. What ETD does *not* do is
-separate two boxes that genuinely sailed together.
+| | it was | what broke it |
+|---|---|---|
+| `vessel + ETD + ETA + POL + POD` | one lane, one pair of dates | **multi-discharge** — differing POD split one hull into two markers, the second on a direct Cartagena → Norfolk lane the ship never sails |
+| `vessel + POL + ETD` | one departure, many discharges | **multi-load** — the Nhava Sheva box and the Pipavav box differ in *both* POL and ETD, so no key read off one row could ever join them |
+
+**And the feed has no voyage number.** Nothing in a shipment says which voyage it is — `mbl` is a
+booking, not a hull. So the only thing separating "two load calls on one sailing" from "two sailings
+of one ship" is how far apart the load dates are, and the threshold is a **judgement about the
+trade, not a fact in the data**. WAN HAI 272 is the case that decides it: two real Bangkok sailings
+99 days apart, which must not merge.
+
+**Gaps chain off the PREVIOUS load, not the first.** A ship working three ports over eighteen days is
+one voyage, and anchoring on the first load would cut it in half. The cost is that a long enough
+chain of small gaps merges; at 21 days that needs a ship loading fortnightly for months, which no
+round trip does.
 
 ### The itinerary
 
-`buildItinerary` turns a sailing's discharge ports into ordered **calls** and the **legs** between
-them. Four rules, each of which is a way of getting it wrong:
+`buildItinerary` turns a sailing's ports into ordered **calls** and the **legs** between them. Six
+rules, each of which is a way of getting it wrong:
 
 1. **Built from every shipment on the sailing, in any state — not just the en-route ones.** Once the
    New York box reports an `actual_portdate` it stops being `enroute` and leaves the holder. If the
    itinerary were assembled from the manifest, the call would leave with it and the ship would snap
-   back onto a direct line to Norfolk. **The manifest shrinks as boxes come off; the itinerary does
-   not.**
-2. **One call per port complex, through `facilityKey`** — the same fold used for cards and for the
+   back onto a direct line to Norfolk. **The manifest shrinks as boxes come off and grows as they go
+   on; the itinerary does neither.**
+2. **Calls at both ends.** Every distinct port of loading is a call dated by `actual_shipping`, every
+   distinct port of discharge one dated by `actual_portdate` falling back to `expected_portdate`. So
+   Nhava Sheva → Pipavav → Los Angeles is three calls and two legs.
+3. **Loads always precede discharges**, ordered by date *within* each half rather than merged into
+   one date sort. On an inbound feed that is simply true, and asserting it means one bad date cannot
+   interleave a load into the middle of the discharge chain and send the ship back across an ocean.
+4. **One call per port complex, through `facilityKey`** — the same fold used for cards and for the
    rail-leg test. This REVERSES the old rule, which kept Long Beach and Los Angeles apart because a
    holder could only ride one polyline. An itinerary has a leg per call, so that reason is gone, and
    keeping them apart now costs a spurious **13.6 km leg across one harbour** ordered by two ETAs a
    day apart. MSC ANNA in the fixture is exactly that case.
-3. **`actual_portdate` dates a call that has happened, `expected_portdate` one that has not**, and
-   calls are ordered by that date. Two containers discharging at one port on different reported days
-   put the call at the **later** of them: a ship leaves when the last box is off.
-4. **Legs are looked up by their two port NAMES**, `"<from> - <to>"`, not from a container's derived
-   `route` field. For a single-call sailing the two strings are identical. For a multi-drop they
-   differ on purpose — the Norfolk box's `route` says Cartagena → Norfolk, and the ship's real path
-   is what has to be drawn. The port-to-port legs are real geometry: the full 1,056-pair US/Canada
-   matrix is in `sea_routes`, so `New York, NY - Norfolk, VA` is a 568.9 km line, not a guess.
+5. **Latest date wins within a call, at both ends** — a ship leaves when the last box is aboard, and
+   leaves again when the last box is off.
+6. **Legs are looked up by their two port NAMES**, `"<from> - <to>"`, not from a container's derived
+   `route` field. For a single-load single-discharge sailing the two strings are identical.
+   Otherwise they differ on purpose: the Norfolk box's `route` says Cartagena → Norfolk and the
+   Pipavav box's says Pipavav → Los Angeles, while the ship sails Cartagena → New York → Norfolk and
+   Nhava Sheva → Pipavav → Los Angeles. **The ship's own path is what gets drawn.**
+
+**The port-to-port legs are real geometry, and they exist because something generates them ahead of
+time.** No shipment is ever booked "Nhava Sheva to Pipavav", so nothing in the feed would ever ask
+for that lane — `polylines/populate_port_matrix.py` builds the full **2,070-pair matrix** over the
+46 ports the map shows (33 `us_ports` type P + the 13 in `map_loading_ports`). `New York, NY -
+Norfolk, VA` is 568.9 km and `Nhava Sheva, India - Pipavav, India` is 460.4 km, not guesses.
 
 **A missing leg truncates the chain; it does not delete the ship.** Keep the calls that resolve, hold
 the hull at the last reachable one, and set `missingLeg` for MapView to warn on. The containers are
@@ -581,16 +602,18 @@ sailings give equal keys; parsing first would only add a way for two identical s
 **Any of the three missing falls back to the shipment id**, so that row stands alone. Unnamed rows
 would otherwise collapse into one ghost ship, and two unknown dates are not the same date.
 
-**The tray shows one line per DESTINATION, not the joined chain** — `holder.manifest`:
+**The tray shows one line per LANE ABOARD, not the joined chain** — `holder.manifest`:
 
 ```
 Cartagena, Colombia - New York, NY    3 containers
 Cartagena, Colombia - Norfolk, VA     1 container
 ```
 
-Each line names the lane **from the origin**, because that is the move that was booked and what a
-reader is holding in their head; the chain is merely how the ship gets there. A call with nothing
-left aboard drops out, so the tray reads as work outstanding rather than history. `subtitle` still
+Each line names the lane **the box was booked on** — its own load port to its own discharge port.
+Not the sailing's first call: on a multi-load sailing the Pipavav box was never at Nhava Sheva, and
+reading "Nhava Sheva - Los Angeles" against it would be false. Built from the manifest, so a lane
+with nothing aboard is simply absent and the tray reads as work outstanding rather than history;
+ordered by the itinerary, so the lines run in the order the boxes will land. `subtitle` still
 carries the full chain and is what the DEV logs print.
 
 **`vesselSplits` got sharper.** While a holder was one voyage, one name in two places could mean
@@ -627,11 +650,13 @@ fields and are what the polyline is looked up by, so one contradicting its own e
 marker on a line its containers are not on.
 
 **Guarded by `npm run test:grouping`** ([tools/check-voyage-grouping.mjs](tools/check-voyage-grouping.mjs)),
-100 checks over the rules — each field varied one at a time, every blank fallback, the LA/Long Beach
+122 checks over the rules — each field varied one at a time, every blank fallback, the LA/Long Beach
 fold, spelling drift, the multi-drop suite (two calls from one departure, ordering by date rather
-than row order, the itinerary surviving a discharge, a truncated chain, the tray's per-destination
-lines), `positionOnItinerary` putting the hull on the right leg, the origin cards (including a port
-that is both an origin and a destination), and the live fixture. Running the
+than row order, the itinerary surviving a discharge, a truncated chain, the tray's per-lane lines),
+the multi-load suite (two load ports on one hull, the 21-day window either side of the line, gaps
+chaining, and a ship mid-load with one box aboard and one still on the quay),
+`positionOnItinerary` putting the hull on the right leg, the origin cards (including a port that is
+both an origin and a destination), and the live fixture. Running the
 app demonstrates the vessel match succeeding and almost nothing else — not one of the ways either
 rule must fail, and not the rail rule at all. Every one of those failures is silent: group two
 containers that are not on one hull and you get a confident badge over a position right for only one

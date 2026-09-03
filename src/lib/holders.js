@@ -29,38 +29,75 @@ const seaLane = (s) => s.sea_route ?? s.route
 // across refreshes, rather than shuffling when the data reloads.
 const byShipment = (a, b) => (a.shipment < b.shipment ? -1 : a.shipment > b.shipment ? 1 : 0)
 
-// THE SAILING a container is aboard: one hull, one departure, and however many ports it calls at.
-// Containers group when three agree — vessel, port of loading, ETD.
+const DAY = 86400000
+
+// TWO LOADS ON ONE SAILING ARE AT MOST THIS FAR APART. Beyond it, the same ship is on its next
+// voyage. See assignSailings.
+const LOAD_WINDOW_DAYS = 21
+
+// THE SAILING a container is aboard: one hull, one voyage, and however many ports it calls at —
+// AT BOTH ENDS. It loads at Nhava Sheva and again at Pipavav a week later, then discharges at Los
+// Angeles; or it loads at Cartagena and discharges at New York and then Norfolk.
 //
-// THIS USED TO BE FIVE FIELDS, with ETA and port of discharge in the key as well, and dropping
-// them is the whole point. A ship discharges at more than one port: two boxes loaded together at
-// Cartagena can come off at New York on 4 Oct and at Norfolk on 13 Oct. Keying on the POD split
-// that one hull into two markers with the same name, at two different points, and drew the second
-// on a direct Cartagena -> Norfolk lane the ship never sails. The several PODs are not several
-// voyages; they are this sailing's ITINERARY, and buildItinerary below turns them into legs.
+// THE KEY CANNOT BE READ OFF A ROW, and that is what makes this a pass rather than a function.
+// It was `vessel + POL + ETD`, which handled multi-DISCHARGE fine — the boxes shared a departure.
+// Multi-LOAD breaks it outright: the Nhava Sheva box and the Pipavav box have a different port of
+// loading AND a different ETD, so no key built from one row could ever put them on one hull.
 //
-// ETD STILL PINS THE SAILING, which is what makes dropping the other two safe. WAN HAI 272 appears
-// in the fixture twice, ETDs 2026-03-24 and 2026-07-01, and those stay two hulls. What ETD does
-// not do is separate two boxes that genuinely sailed together.
+// AND THE FEED HAS NO VOYAGE NUMBER. Nothing in a shipment says which voyage it is; `mbl` is a
+// booking, not a hull. So the only thing separating "two load calls on one sailing" from "two
+// sailings of one ship" is HOW FAR APART THE LOAD DATES ARE, and the threshold is a judgement
+// about the trade rather than a fact in the data. WAN HAI 272 is the case that matters: two real
+// Bangkok sailings 99 days apart, which must not merge.
 //
-// NORMALIZED, because port names in this data are not: `Singapore`, `SINGAPORE` and
-// `Singapore, Singapore` are all legal spellings of one place (CLAUDE.md §4), and a sailing must
-// not split on capitalisation.
+// Gaps are measured against the PREVIOUS load, not the first — a ship working three ports over
+// eighteen days is one voyage, and anchoring on the first load would cut it in half. The cost is
+// that a long enough chain of small gaps merges; at 21 days that needs a ship loading fortnightly
+// for months, which no round trip does.
 //
 // Three ways out into a holder of one, all of them the rule being honest rather than exceptions
 // to it. A blank VESSEL NAME cannot be shared — every unnamed row would otherwise collapse into a
-// single ghost ship on whatever else they happened to have in common. A MISSING ETD is not a value
-// two rows can match on: two unknowns are not the same unknown. And a MISSING PORT OF LOADING
-// leaves the origin of the whole itinerary unstated.
+// single ghost ship on whatever else they happened to have in common. A MISSING ETD cannot be
+// clustered against anything: two unknowns are not the same unknown. And a MISSING PORT OF LOADING
+// leaves the start of the itinerary unstated.
 //
-// Falling back to the shipment id makes those rows individually keyed, so they stand alone.
-const sailingKey = (s) => {
-  const parts = [s.vessel, s.port_of_loading, s.actual_shipping]
-  if (parts.some((p) => !p || !String(p).trim())) return `solo|${s.shipment}`
-  const [vessel, pol, etd] = parts
-  // The date stays RAW: same YYYY-MM-DD field, same feed, so equal sailings give equal strings and
-  // normalizing it could only invent a way for two identical dates to differ.
-  return `${normalizeKey(vessel)}|${normalizeKey(pol)}|${etd}`
+// NORMALIZED, because port and vessel names in this data are not: `Singapore`, `SINGAPORE` and
+// `Singapore, Singapore` are all legal spellings of one place (CLAUDE.md §4).
+//
+/** @returns {Map<string,string>} shipment id -> sailing key */
+function assignSailings(shipments) {
+  const byVessel = new Map()
+  const keys = new Map()
+
+  for (const s of shipments) {
+    const vessel = normalizeKey(s.vessel)
+    const etd = parseYMD(s.actual_shipping)
+    const pol = s.port_of_loading
+    if (!vessel || !etd || !pol || !String(pol).trim()) {
+      keys.set(s.shipment, `solo|${s.shipment}`)
+      continue
+    }
+    if (!byVessel.has(vessel)) byVessel.set(vessel, [])
+    byVessel.get(vessel).push({ s, etd })
+  }
+
+  for (const [vessel, rows] of byVessel) {
+    // Sorted by date, then by id so a run is reproducible when two loads share a day.
+    rows.sort((a, b) => a.etd - b.etd || byShipment(a.s, b.s))
+    let key = null
+    let prev = null
+    for (const { s, etd } of rows) {
+      if (prev === null || (etd - prev) / DAY > LOAD_WINDOW_DAYS) {
+        // Named for the sailing's FIRST load. The date stays RAW: same YYYY-MM-DD field from the
+        // same feed, so equal sailings give equal strings.
+        key = `${vessel}|${s.actual_shipping}`
+      }
+      keys.set(s.shipment, key)
+      prev = etd
+    }
+  }
+
+  return keys
 }
 
 // When the ship is at a given container's discharge port. An ACTUAL arrival is truth; an expected
@@ -76,71 +113,102 @@ const callDate = (s) => parseYMD(s.actual_portdate) || parseYMD(s.expected_portd
  * at and snap the ship back onto a direct line to Norfolk. The manifest shrinks as boxes come off;
  * the itinerary does not.
  *
+ * CALLS AT BOTH ENDS. A sailing loads at every distinct port of loading and discharges at every
+ * distinct port of discharge, so Nhava Sheva -> Pipavav -> Los Angeles is three calls and two legs.
+ * A load is dated by `actual_shipping` and a discharge by `actual_portdate` falling back to
+ * `expected_portdate`.
+ *
+ * LOADS ALWAYS PRECEDE DISCHARGES, ordered by date within each half rather than merged into one
+ * date sort. On an inbound feed that is simply true — every load happens before any discharge — and
+ * asserting it means one bad date cannot interleave a load into the middle of the discharge chain
+ * and send the ship back across an ocean.
+ *
  * ONE CALL PER PORT COMPLEX, through facilityKey — the same fold `canonicalPort` applies to port
  * cards and `isIntermodal` to rail legs. MSC ANNA in the fixture discharges at both Los Angeles and
  * Long Beach; treating those as two calls invents a 13.6 km leg across one harbour, ordered by two
  * ETAs a day apart. They are one gateway, so they are one call.
  *
- * A CALL WITH NO DATE IS DROPPED. It can be neither ordered against the others nor used to bound a
- * leg, and guessing a position for it would be worse than not drawing that stretch.
+ * LATEST DATE WINS WITHIN A CALL, at both ends: a ship leaves when the last box is aboard, and
+ * leaves again when the last box is off.
+ *
+ * A DISCHARGE CALL WITH NO DATE IS DROPPED — it can be neither ordered nor used to bound a leg. An
+ * undated LOAD is not, when it is the only one: see the blank-ETD note below.
  *
  * @returns {{key,name,pol,etd,calls,legs,missingLeg}|null}
  */
 function buildItinerary(key, rows, routesByKey) {
   const first = rows[0]
-  const etd = parseYMD(first.actual_shipping)
-  const pol = first.port_of_loading
-  // A BLANK PORT OF LOADING IS FATAL; A BLANK ETD IS NOT, and the asymmetry is the point. Without
-  // an origin there is no first leg to look up and nothing to draw a ship along, so the sailing is
-  // dropped exactly as a missing route always was. Without a departure date the lane is still
-  // perfectly known — only how far along it is not — so the leg is built with a null start,
-  // computeProgress returns 0 for it, and the hull sits at the load port saying "on this lane,
-  // distance unknown". Dropping it instead would take the container off the map altogether: it is
-  // `enroute`, so no port card would catch it either.
-  if (!pol) return null
 
-  // Latest date wins within a call: a ship leaves when the LAST box is off, so two containers
-  // discharging at one port on different reported days put the departure at the later of them.
-  const calls = new Map()
-  for (const s of rows) {
-    const k = facilityKey(s.port_of_discharge)
-    const date = callDate(s)
-    if (!k || !date) continue
-    const seen = calls.get(k)
-    if (!seen) calls.set(k, { key: k, name: canonicalPort(s.port_of_discharge), date })
+  const add = (map, port, date, kind) => {
+    const k = facilityKey(port)
+    if (!k || !date) return
+    const id = `${kind}|${k}`
+    const seen = map.get(id)
+    if (!seen) map.set(id, { key: k, name: canonicalPort(port), date, kind })
     else if (date > seen.date) seen.date = date
   }
 
-  const ordered = [...calls.values()].sort((a, b) => a.date - b.date)
+  const loadMap = new Map()
+  const dischargeMap = new Map()
+  for (const s of rows) {
+    add(loadMap, s.port_of_loading, parseYMD(s.actual_shipping), 'load')
+    add(dischargeMap, s.port_of_discharge, callDate(s), 'discharge')
+  }
 
-  // Legs run POL -> call1 -> call2 -> ..., each looked up by its two port NAMES rather than by a
-  // container's derived `route` field. For a single-call sailing the two are the same string
-  // (`route` is built as "POL - POD"); for a multi-drop they differ on purpose — the Norfolk box's
-  // route says Cartagena -> Norfolk, and the ship's actual path is what has to be drawn.
+  const loads = [...loadMap.values()].sort((a, b) => a.date - b.date)
+
+  // A BLANK PORT OF LOADING IS FATAL; A BLANK ETD IS NOT, and the asymmetry is the point. Without
+  // an origin there is no first leg to look up and nothing to draw a ship along, so the sailing is
+  // dropped exactly as a missing route always was. Without a departure date the lane is still
+  // perfectly known — only how far along it is not — so the chain starts at an UNDATED load call,
+  // computeProgress returns 0 for its leg, and the hull sits at the load port saying "on this lane,
+  // distance unknown". Dropping it instead would take the container off the map altogether: it is
+  // `enroute`, so no port card would catch it either.
+  if (!loads.length) {
+    const pol = first.port_of_loading
+    if (!pol || !facilityKey(pol)) return null
+    loads.push({ key: facilityKey(pol), name: canonicalPort(pol), date: null, kind: 'load' })
+  }
+
+  const ordered = [...loads, ...[...dischargeMap.values()].sort((a, b) => a.date - b.date)]
+
+  // Legs run call1 -> call2 -> ..., each looked up by its two port NAMES rather than by a
+  // container's derived `route` field. For a single-load single-discharge sailing the two are the
+  // same string (`route` is built as "POL - POD"); otherwise they differ on purpose — the Norfolk
+  // box's route says Cartagena -> Norfolk, and the Pipavav box's says Pipavav -> Los Angeles, while
+  // the ship sails Cartagena -> New York -> Norfolk and Nhava Sheva -> Pipavav -> Los Angeles. The
+  // ship's own path is what has to be drawn.
   const legs = []
-  let from = pol
-  let start = etd
+  let from = ordered[0]
   let missingLeg = null
 
-  for (const call of ordered) {
-    // The POL itself appearing as a call — a box discharged where it loaded — is not a leg.
-    if (facilityKey(from) === call.key) {
-      start = call.date
+  for (const call of ordered.slice(1)) {
+    // The same complex twice in a row is not a leg — a box discharged where another loaded, or two
+    // berths of one gateway. Carry the later date forward so the next leg is still bounded right.
+    if (from.key === call.key) {
+      from = { ...from, date: call.date }
       continue
     }
-    const coords = routesByKey?.get(normalizeKey(`${canonicalPort(from)} - ${call.name}`))
+    const coords = routesByKey?.get(normalizeKey(`${from.name} - ${call.name}`))
     if (!coords || coords.length < 2) {
       // TRUNCATE, DO NOT DISCARD. The containers are still aboard and still belong in the tray;
       // the map just stops claiming a path it has no geometry for. MapView reports this in DEV.
-      missingLeg = `${canonicalPort(from)} - ${call.name}`
+      missingLeg = `${from.name} - ${call.name}`
       break
     }
-    legs.push({ from: canonicalPort(from), to: call.name, coords, start, end: call.date })
-    from = call.name
-    start = call.date
+    legs.push({ from: from.name, to: call.name, coords, start: from.date, end: call.date })
+    from = call
   }
 
-  return { key, name: first.vessel, pol, etd, calls: ordered, legs, missingLeg }
+  return {
+    key,
+    name: first.vessel,
+    pol: ordered[0].name,
+    etd: ordered[0].date,
+    calls: ordered,
+    legs,
+    missingLeg,
+  }
 }
 
 // THE INLAND LEG a container is on: one origin, one destination, one departure, one arrival.
@@ -183,8 +251,11 @@ export function buildHolders(shipments, routesByKey, portPoints, railByKey) {
   // loop below only ever sees the en-route ones.
   const sailings = new Map()
   const bySailing = new Map()
+  // Clustered per vessel, so the key is looked up rather than computed from a row — a multi-load
+  // sailing has no single row that identifies it. See assignSailings.
+  const keyOf = assignSailings(shipments)
   for (const s of shipments) {
-    const k = sailingKey(s)
+    const k = keyOf.get(s.shipment)
     if (!bySailing.has(k)) bySailing.set(k, [])
     bySailing.get(k).push(s)
   }
@@ -259,11 +330,13 @@ export function buildHolders(shipments, routesByKey, portPoints, railByKey) {
       }
       const g = origins.get(key)
       // The mirror of the arrived branch's routeEnd: a fallback anchor for a load port with no row
-      // in world_ports. The sailing's first leg starts AT the origin, so its first vertex is the
-      // best guess available, and it keeps the container on the map rather than silently gone.
+      // in world_ports. Taken from the leg that DEPARTS this port — not the sailing's first leg,
+      // which on a multi-load sailing starts somewhere else entirely: a box waiting at Pipavav
+      // would otherwise be anchored at Nhava Sheva.
       if (!g.routeStart) {
-        const c = sailings.get(sailingKey(s))?.legs[0]?.coords
-        if (c && c.length >= 2) g.routeStart = c[0]
+        const legs = sailings.get(keyOf.get(s.shipment))?.legs ?? []
+        const leg = legs.find((l) => facilityKey(l.from) === pk) ?? legs[0]
+        if (leg?.coords?.length >= 2) g.routeStart = leg.coords[0]
       }
       g.containers.push(s)
       continue
@@ -271,12 +344,12 @@ export function buildHolders(shipments, routesByKey, portPoints, railByKey) {
 
     if (state !== 'enroute') continue
 
-    // KEYED ON VESSEL + POL + ETD — a SAILING, not a ship, not a lane, and no longer one leg.
-    // The itinerary was built above from every container booked on it; what goes in the holder
-    // here is the MANIFEST, which is only the boxes still aboard. That is what makes the count
-    // badge fall from 4 to 1 as the ship works its way down the coast, with no special case: a
-    // discharged container simply stops being `enroute`.
-    const itinerary = sailings.get(sailingKey(s))
+    // ONE SAILING, not a ship and not a lane. The itinerary was built above from every container
+    // booked on it; what goes in the holder here is the MANIFEST, which is only the boxes actually
+    // aboard right now. That is what makes the count badge move with no special case at either end
+    // — a box not yet loaded is `future` and waits on an origin card, a discharged one stops being
+    // `enroute` — so the number rises as the ship loads down the coast and falls as it discharges.
+    const itinerary = sailings.get(keyOf.get(s.shipment))
     // No first leg means no geometry at all to draw on — the same miss that used to drop a
     // container whose lane was not in sea_routes.
     if (!itinerary?.legs.length) continue
@@ -300,25 +373,37 @@ export function buildHolders(shipments, routesByKey, portPoints, railByKey) {
         // The whole chain. Used by the DEV logs and the missing-leg warning; the TRAY shows
         // `manifest` instead, which answers the question a reader actually has.
         subtitle: [itinerary.pol, ...itinerary.calls.map((c) => c.name)].join(' → '),
-        // ONE LINE PER DESTINATION, with what is still aboard for it:
+        // ONE LINE PER LANE ABOARD, with what is on it:
         //
         //     Cartagena, Colombia - New York, NY    3 containers
         //     Cartagena, Colombia - Norfolk, VA     1 container
         //
-        // Each line names the lane FROM THE ORIGIN, not from the previous call — "Cartagena ->
-        // Norfolk" is the move that was booked, and it is what a reader is holding in their head.
-        // The chain is how the ship gets there; this is what it is carrying and where it comes off.
+        // Each line names the lane THE BOX WAS BOOKED ON — its own load port to its own discharge
+        // port. Not the sailing's first call: on a multi-load sailing the Pipavav box was never at
+        // Nhava Sheva, and reading "Nhava Sheva - Los Angeles" against it would be false. The chain
+        // in `subtitle` is how the ship gets there; this is what it carries and where each box
+        // comes off.
         //
-        // A call with nothing left aboard drops out, so the tray shows work outstanding rather
-        // than history: once New York is discharged the vessel reads as a Norfolk delivery.
-        manifest: itinerary.calls
-          .map((call) => ({
-            key: call.key,
-            name: call.name,
-            lane: `${itinerary.pol} - ${call.name}`,
-            count: containers.filter((c) => facilityKey(c.port_of_discharge) === call.key).length,
-          }))
-          .filter((m) => m.count > 0),
+        // Built from the MANIFEST, so a lane with nothing aboard is simply absent and the tray
+        // reads as work outstanding rather than history — once New York is discharged the vessel
+        // reads as a Norfolk delivery.
+        //
+        // Ordered by the itinerary, so the lines run in the order the boxes will actually land.
+        manifest: (() => {
+          const byLane = new Map()
+          for (const c of containers) {
+            const pod = facilityKey(c.port_of_discharge)
+            const lane = `${canonicalPort(c.port_of_loading)} - ${canonicalPort(c.port_of_discharge)}`
+            const seen = byLane.get(lane)
+            if (seen) seen.count += 1
+            else byLane.set(lane, { key: lane, name: canonicalPort(c.port_of_discharge), lane, pod, count: 1 })
+          }
+          const order = new Map(itinerary.calls.map((call, i) => [call.key, i]))
+          return [...byLane.values()].sort(
+            (a, b) => (order.get(a.pod) ?? Infinity) - (order.get(b.pod) ?? Infinity) ||
+              a.lane.localeCompare(b.lane),
+          )
+        })(),
         legs: itinerary.legs,
         calls: itinerary.calls,
         // The leg that has no polyline, if the itinerary was cut short at one. MapView reports it;

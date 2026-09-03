@@ -57,6 +57,9 @@ const routes = new Map([
   [normalizeKey('Cartagena, Colombia - New York, NY'), [[-75, 10], [-74, 40]]],
   [normalizeKey('New York, NY - Norfolk, VA'), [[-74, 40], [-76.3, 36.9]]],
   [normalizeKey('New York, NY - Los Angeles, CA'), [[-74, 40], [-118, 33]]],
+  [normalizeKey('Nhava Sheva, India - Pipavav, India'), [[72.95, 18.95], [71.57, 20.92]]],
+  [normalizeKey('Pipavav, India - Los Angeles, CA'), [[71.57, 20.92], [-118, 33]]],
+  [normalizeKey('Nhava Sheva, India - Los Angeles, CA'), [[72.95, 18.95], [-118, 33]]],
 ])
 
 // En route: sailed, not yet arrived.
@@ -92,8 +95,13 @@ const CASES = [
 
   ['different VESSEL -> two', [
     ship({ shipment: 'A' }), ship({ shipment: 'B', vessel: 'OTHER SHIP' })], 2],
-  ['different ETD -> two', [
-    ship({ shipment: 'A' }), ship({ shipment: 'B', actual_shipping: '2026-06-02' })], 2],
+  // A DAY APART IS THE SAME SAILING. It used to be two, back when ETD was in the key verbatim —
+  // but a ship loading over two days is one departure, and multi-load grouping had to stop treating
+  // a differing ETD as a different hull. Beyond LOAD_WINDOW_DAYS it still is.
+  ['ETD a day apart -> still ONE', [
+    ship({ shipment: 'A' }), ship({ shipment: 'B', actual_shipping: '2026-06-02' })], 1],
+  ['ETD beyond the load window -> two', [
+    ship({ shipment: 'A' }), ship({ shipment: 'B', actual_shipping: '2026-07-15' })], 2],  // 44 days: a second voyage
 
   // ETD is what pins the sailing, so a differing ETA no longer splits the hull. Two boxes off the
   // same departure arriving on different days are one ship making two calls — see the multi-drop
@@ -103,9 +111,11 @@ const CASES = [
     ship({ shipment: 'B', expected_portdate: '2026-12-02',
            port_of_discharge: 'Los Angeles, CA', Lastcy: 'Los Angeles, CA' })], 1],
 
-  ['different PORT OF LOADING -> two', [
+  // WAS TWO. A second load port inside the window is the ship calling twice on its way out, not a
+  // second hull — see the multi-load section. Beyond the window it is a different voyage again.
+  ['different PORT OF LOADING beyond the window -> two', [
     ship({ shipment: 'A' }),
-    ship({ shipment: 'B', port_of_loading: 'Cartagena, Colombia',
+    ship({ shipment: 'B', port_of_loading: 'Cartagena, Colombia', actual_shipping: '2026-07-15',
            route: 'Cartagena, Colombia - New York, NY' })], 2],
 
   // WAS TWO. A different discharge port used to mean a different holder, which is exactly the bug
@@ -170,8 +180,9 @@ check('holds all three', one.containers.length, 3)
 check('sorted by shipment id', one.containers.map((c) => c.shipment).join(''), 'ABC')
 check('one ETD, read off the group', one.etd?.toISOString().slice(0, 10), '2026-06-01')
 check('one ETA, read off the group', one.eta?.toISOString().slice(0, 10), '2026-12-01')
-check('one call', one.calls.length, 1)
-check('one leg', one.legs.length, 1)
+check('two calls: one load, one discharge', one.calls.length, 2)
+check('...the first being the load', one.calls[0].kind, 'load')
+check('one leg between them', one.legs.length, 1)
 check('nothing missing', one.missingLeg, null)
 
 // ── MULTI-DROP: one hull, several calls ────────────────────────────────────────────────
@@ -202,13 +213,14 @@ const NORFOLK = {
 const multi = holders([drop({ shipment: 'A' }), drop({ shipment: 'B', ...NORFOLK })])
 check('two PODs, one sailing', multi.length, 1)
 check('...carrying both boxes', multi[0].containers.length, 2)
-check('...as two calls', multi[0].calls.length, 2)
-check('...in date order', multi[0].calls.map((c) => c.name).join(' > '), 'New York, NY > Norfolk, VA')
+check('...as three calls: the load, then two discharges', multi[0].calls.length, 3)
+check('...in order', multi[0].calls.map((c) => c.name).join(' > '),
+  'Cartagena, Colombia > New York, NY > Norfolk, VA')
 check('...over two legs', multi[0].legs.length, 2)
 check('...the second running between the two ports', multi[0].legs[1].from + ' -> ' + multi[0].legs[1].to,
   'New York, NY -> Norfolk, VA')
 check('...and the subtitle names the whole chain', multi[0].subtitle,
-  'Cartagena, Colombia → New York, NY → Norfolk, VA')
+  'Cartagena, Colombia → Cartagena, Colombia → New York, NY → Norfolk, VA')
 
 // WHAT THE TRAY SHOWS: one line per destination, each named from the ORIGIN, because
 // "Cartagena -> Norfolk" is the move that was booked. The chain is how the ship gets there.
@@ -220,7 +232,7 @@ check('...the tray lists a lane per destination',
 // the itinerary and send the ship to Norfolk before New York.
 const reversed = holders([drop({ shipment: 'A', ...NORFOLK }), drop({ shipment: 'B' })])
 check('rows in reverse still order by date', reversed[0].calls.map((c) => c.name).join(' > '),
-  'New York, NY > Norfolk, VA')
+  'Cartagena, Colombia > New York, NY > Norfolk, VA')
 
 // THE ITINERARY OUTLIVES THE MANIFEST. Once the New York box lands it is no longer `enroute`, so
 // it leaves the holder — but the call it made must not leave with it, or the ship snaps back onto
@@ -231,7 +243,7 @@ const midVoyage = holders([
 ])
 check('after the first call, one holder still', midVoyage.length, 1)
 check('...carrying only what is still aboard', midVoyage[0].containers.length, 1)
-check('...but remembering both calls', midVoyage[0].calls.length, 2)
+check('...but remembering both discharges', midVoyage[0].calls.length, 3)
 check('...and still routed via New York', midVoyage[0].legs.length, 2)
 // The discharged call drops out of the tray: what is left is work outstanding, not history.
 check('...the tray now shows only Norfolk',
@@ -257,6 +269,87 @@ check('...and it names the gap', noLeg[0].missingLeg, 'New York, NY - Savannah, 
 const noFirst = holders([drop({ shipment: 'A', port_of_loading: 'Nowhere, XX',
   route: 'Nowhere, XX - New York, NY' })])
 check('missing first leg -> no holder', noFirst.length, 0)
+
+// ── MULTI-LOAD: one hull, two ports of loading ─────────────────────────────────
+//
+// The mirror of the multi-drop case, at the other end of the voyage. BUDAPEST loads at Nhava Sheva,
+// works up the coast to Pipavav a week later, then crosses to Los Angeles.
+//
+// This is the case NO KEY BUILT FROM ONE ROW CAN HANDLE: the two boxes differ in port of loading
+// AND in ETD, so `vessel + POL + ETD` put them on two hulls by construction. Grouping had to become
+// a per-vessel clustering pass over the load dates (assignSailings).
+console.log('\nmulti-load sailings\n')
+
+const NHAVA = {
+  port_of_loading: 'Nhava Sheva, India',
+  port_of_discharge: 'Los Angeles, CA',
+  Lastcy: 'Los Angeles, CA',
+  route: 'Nhava Sheva, India - Los Angeles, CA',
+  actual_shipping: '2026-06-01',
+  expected_portdate: '2099-07-10',
+}
+const load = (over) => ship({ ...NHAVA, ...over })
+const PIPAVAV = {
+  port_of_loading: 'Pipavav, India',
+  route: 'Pipavav, India - Los Angeles, CA',
+  actual_shipping: '2026-06-08', // seven days later, the user's own example
+}
+{
+  const both = holders([load({ shipment: 'A' }), load({ shipment: 'B', ...PIPAVAV })])
+  check('two load ports, one sailing', both.length, 1)
+  check('...carrying both boxes', both[0].containers.length, 2)
+  check('...as three calls', both[0].calls.length, 3)
+  check('...two of them loads', both[0].calls.filter((c) => c.kind === 'load').length, 2)
+  check('...in date order', both[0].calls.map((c) => c.name).join(' > '),
+    'Nhava Sheva, India > Pipavav, India > Los Angeles, CA')
+  check('...over two legs', both[0].legs.length, 2)
+  check('...the first being the coastal hop', `${both[0].legs[0].from} -> ${both[0].legs[0].to}`,
+    'Nhava Sheva, India -> Pipavav, India')
+
+  // EACH BOX KEEPS ITS OWN LANE. The Pipavav container was never at Nhava Sheva, so a manifest line
+  // reading "Nhava Sheva - Los Angeles" against it would simply be false.
+  check("...and the tray names each box's own lane",
+    both[0].manifest.map((m) => `${m.lane} (${m.count})`).join(' | '),
+    'Nhava Sheva, India - Los Angeles, CA (1) | Pipavav, India - Los Angeles, CA (1)')
+
+  // Rows in the other order must not reverse the itinerary and sail the ship backwards.
+  const rev = holders([load({ shipment: 'A', ...PIPAVAV }), load({ shipment: 'B' })])
+  check('rows in reverse still order by load date', rev[0].calls.map((c) => c.name).join(' > '),
+    'Nhava Sheva, India > Pipavav, India > Los Angeles, CA')
+}
+
+// THE LOAD WINDOW IS WHAT SEPARATES A SECOND CALL FROM A SECOND VOYAGE, and 21 days is the line.
+// Gaps chain off the PREVIOUS load, so a ship working three ports over eighteen days stays one
+// sailing rather than being cut at the first one.
+{
+  const inside = holders([load({ shipment: 'A' }), load({ shipment: 'B', ...PIPAVAV, actual_shipping: '2026-06-21' })])
+  check('20 days apart -> one sailing', inside.length, 1)
+  const outside = holders([load({ shipment: 'A' }), load({ shipment: 'B', ...PIPAVAV, actual_shipping: '2026-06-23' })])
+  check('22 days apart -> two sailings', outside.length, 2)
+  const chained = holders([
+    load({ shipment: 'A' }),
+    load({ shipment: 'B', ...PIPAVAV, actual_shipping: '2026-06-15' }),
+    load({ shipment: 'C', ...PIPAVAV, port_of_loading: 'Mundra, India', actual_shipping: '2026-06-29' }),
+  ])
+  check('28 days end to end in 14-day steps -> still one sailing', chained.length, 1)
+}
+
+// A BOX NOT YET LOADED IS NOT ABOARD. It waits on an origin card at ITS OWN port while the ship is
+// still at sea between the two — the state the live fixture is posed in.
+{
+  const soon = new Date(); soon.setDate(soon.getDate() + 4)
+  const ago = new Date(); ago.setDate(ago.getDate() - 3)
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const rows = [
+    load({ shipment: 'A', actual_shipping: ymd(ago) }),
+    load({ shipment: 'B', ...PIPAVAV, actual_shipping: ymd(soon) }),
+  ]
+  const built = buildHolders(rows, routes, new Map([[normalizeKey('Pipavav, India'), [71.57, 20.92]]]), rails)
+  check('mid-load: the ship carries only what is loaded', built.vessels[0]?.containers.length, 1)
+  check('...but its itinerary still calls at Pipavav', built.vessels[0]?.calls.length, 3)
+  check('...and the waiting box is on an origin card', built.ports[0]?.kind, 'origin')
+  check("...at ITS port, not the sailing's first", built.ports[0]?.name, 'Pipavav, India')
+}
 
 // ── WHERE THE HULL ACTUALLY GOES ───────────────────────────────────────────────────────
 //
@@ -475,9 +568,10 @@ for (const v of live) {
 const cautin = live.filter((v) => v.name === 'CAUTIN')
 check('CAUTIN is ONE holder', cautin.length, 1)
 check('holding all 4 containers', cautin[0]?.containers.length, 4)
-check('across two calls', cautin[0]?.calls.length, 2)
+check('across two discharge calls', cautin[0]?.calls.length, 3)
 check('New York first, then Norfolk',
-  cautin[0]?.calls.map((c) => c.name).join(' > '), 'New York, NY > Norfolk, VA')
+  cautin[0]?.calls.filter((c) => c.kind === 'discharge').map((c) => c.name).join(' > '),
+  'New York, NY > Norfolk, VA')
 check('with geometry for both legs', cautin[0]?.legs.length, 2)
 
 // MSC ANNA names Los Angeles AND Long Beach, which is one gateway and so one call — not a 13.6 km
@@ -488,18 +582,26 @@ const anna = buildHolders(
   realRoutes, new Map(), new Map(),
 ).vessels
 check('MSC ANNA is ONE holder', anna.length, 1)
-check('...calling once, LA and Long Beach folded', anna[0]?.calls.length, 1)
-check('...named for the complex', anna[0]?.calls[0]?.name, 'Los Angeles, CA')
+check('...discharging once, LA and Long Beach folded',
+  anna[0]?.calls.filter((c) => c.kind === 'discharge').length, 1)
+check('...named for the complex',
+  anna[0]?.calls.find((c) => c.kind === 'discharge')?.name, 'Los Angeles, CA')
 
-// BUDAPEST has not sailed: it must be an ORIGIN card at Nhava Sheva and NOT a vessel, because
-// there is no ship to draw on the water yet.
+// BUDAPEST IS MID-LOAD: it sailed from Nhava Sheva three days ago and reaches Pipavav in four, so
+// one box is aboard and one is still standing on the quay. Both halves have to be true at once.
 const liveCards = buildHolders(shipments, realRoutes, new Map(), new Map()).ports
-check('BUDAPEST is not on the water', live.some((v) => v.name === 'BUDAPEST'), false)
-const nhava = liveCards.find((p) => p.name === 'Nhava Sheva, India')
-check('...it is an origin card at Nhava Sheva', nhava?.kind, 'origin')
-check('...holding its container', nhava?.containers.length, 1)
-check('...and no discharge card claims Nhava Sheva',
-  liveCards.filter((p) => p.name === 'Nhava Sheva, India').length, 1)
+const budapest = live.find((v) => v.name === 'BUDAPEST')
+check('BUDAPEST is on the water', Boolean(budapest), true)
+check('...carrying only the box that has loaded', budapest?.containers.length, 1)
+check('...over an itinerary of two loads and a discharge', budapest?.calls.length, 3)
+check('...Nhava Sheva, Pipavav, then Los Angeles',
+  budapest?.calls.map((c) => c.name).join(' > '),
+  'Nhava Sheva, India > Pipavav, India > Los Angeles, CA')
+check('...on the leg to Pipavav', budapest?.legs[0]?.to, 'Pipavav, India')
+const pipavav = liveCards.find((p) => p.name === 'Pipavav, India')
+check('...while the box not yet loaded waits at Pipavav', pipavav?.kind, 'origin')
+check('...on its own card', pipavav?.containers.length, 1)
+check('...and Nhava Sheva has no card left', liveCards.some((p) => p.name === 'Nhava Sheva, India'), false)
 
 check('no vessel is drawn twice', vesselSplits(live).length, 0)
 check('every holder has geometry to ride', live.every((v) => v.legs.length >= 1), true)

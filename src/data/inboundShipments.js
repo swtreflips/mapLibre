@@ -298,13 +298,24 @@ const inboundShipments = [
       { po_number: 'PO155712', item: 'KRSP-NK161204', qty: 860, vendor: 'Junsun Packaging (Thailand) Co., Ltd.' },
     ],
   },
-  // TEST: NOT SAILED YET. The only container in the fixture whose ETD is in the future, which is
-  // the whole point of it — the state existed in shipmentState and in the Overview count from the
-  // start, but nothing drew it, so a booked container was invisible on the map until the day it
-  // sailed. It now sits on an ORIGIN card at Nhava Sheva (holders.js, `kind: 'origin'`).
+  // TEST: A SAILING THAT LOADS AT TWO PORTS. BUDAPEST works up the Indian coast — Nhava Sheva
+  // first, Pipavav a week later — then crosses to Los Angeles. Two calls at the ORIGIN end, the
+  // mirror of CAUTIN's two calls at the discharge end.
   //
-  // Deliberately NOT on a card with any discharge port: an origin is keyed `origin|<port>` so the
-  // two can never merge. Nhava Sheva is in INTL_PORTS, so the anchor is a real world_ports row.
+  // The dates put it MID-LOAD on purpose, which is the only state where every part of the
+  // behaviour is visible at once:
+  //
+  //   3971  Nhava Sheva  ETD 3 days ago    -> enroute, aboard, badge 1
+  //   3972  Pipavav      ETD in 4 days     -> future, waiting on an ORIGIN card at Pipavav
+  //   ship                                 -> on leg 1, Nhava Sheva -> Pipavav (460.4 km)
+  //
+  // Once 3972's ETD passes the badge becomes 2 and the Pipavav card empties, with no special case
+  // anywhere: loading is just a container ceasing to be `future`.
+  //
+  // The two rows have a DIFFERENT port of loading AND a different ETD, so no key built from one
+  // row could group them — this is the fixture that forced holders.js to cluster per vessel
+  // (assignSailings). Their loads are 7 days apart, well inside LOAD_WINDOW_DAYS; WAN HAI 272's
+  // two Bangkok sailings are 99 days apart and must stay separate.
   {
     shipment: 'INBSHIP3971',
     container: 'TGBU5540118',
@@ -318,14 +329,37 @@ const inboundShipments = [
     port_of_discharge: 'Los Angeles, CA',
     Lastcy: 'Los Angeles, CA',
     route: 'Nhava Sheva, India - Los Angeles, CA',
-    actual_shipping: daysAhead(11), // the ETD is the point: still in the future
-    expected_portdate: daysAhead(48),
+    actual_shipping: daysAgo(3), // sailed: the ship has left Nhava Sheva
+    expected_portdate: daysAhead(34),
     actual_portdate: '',
     appointment_date: '',
     arrival_notice: 'no',
     last_freeday: '',
     items: [
       { po_number: 'PO155884', item: 'KRSP-NK161390', qty: 1420, vendor: 'Shree Ganesh Polymers Pvt. Ltd.' },
+    ],
+  },
+  {
+    shipment: 'INBSHIP3972',
+    container: 'TGBU5612044',
+    vessel: 'BUDAPEST',
+    confirmed_carrier: '',
+    freight_forwarder: 'Constellation Logistics LLC',
+    drayage_provider: '',
+    hbl: 'HLCUBOM2609ARTX7',
+    mbl: 'HLCUBOM2609ARTX1',
+    port_of_loading: 'Pipavav, India',
+    port_of_discharge: 'Los Angeles, CA',
+    Lastcy: 'Los Angeles, CA',
+    route: 'Pipavav, India - Los Angeles, CA',
+    actual_shipping: daysAhead(4), // NOT sailed: still waiting for the ship to reach Pipavav
+    expected_portdate: daysAhead(34),
+    actual_portdate: '',
+    appointment_date: '',
+    arrival_notice: 'no',
+    last_freeday: '',
+    items: [
+      { po_number: 'PO155901', item: 'KRSP-NK161402', qty: 980, vendor: 'Shree Ganesh Polymers Pvt. Ltd.' },
     ],
   },
   // TEST: the LOS ANGELES / LONG BEACH complex. Two blue containers, one at each port, which
