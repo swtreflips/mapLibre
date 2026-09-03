@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase, fetchAllRows } from '../lib/supabase'
 import { normalizeKey } from '../lib/vesselMath'
 
 // Routes live in the SHARED Supabase project (the RatesApp consolidation), in `sea_routes` —
@@ -41,10 +41,16 @@ export function useRoutes() {
       // 'default' today, so an unfiltered query would still work; but routesByKey is keyed on
       // "POL - POD" alone, so the moment variant rows land, two rows collide on one key and the
       // last one silently wins. Pinning here costs nothing and closes that before it can bite.
-      const { data, error: err } = await supabase
-        .from('sea_routes')
-        .select('origin_port,destination_port,route_geom,geojson,routing_variant')
-        .eq('routing_variant', 'default')
+      // PAGED, because sea_routes is well past PostgREST's 1000-row cap: the two port matrices took
+      // it from 486 rows to 2,373. Read in one shot it returned exactly 1000 with no error and no
+      // warning, and the lanes that fell outside were simply absent — a vessel whose first leg was
+      // one of them vanished from the map with nothing to say why. See fetchAllRows.
+      const { data, error: err } = await fetchAllRows(() =>
+        supabase
+          .from('sea_routes')
+          .select('origin_port,destination_port,route_geom,geojson,routing_variant')
+          .eq('routing_variant', 'default'),
+      )
       if (cancelled) return
       if (err) {
         setError(err)

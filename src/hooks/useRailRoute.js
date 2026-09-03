@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase, fetchAllRows } from '../lib/supabase'
 import { normalizeKey } from '../lib/vesselMath'
 
 // Rail lanes from `public.rail_routes`, for the inland leg between a discharge port and an
@@ -71,7 +71,12 @@ export function useRailRoutes(lanes) {
         .map(([o, d]) => `and(origin_port.ilike.${quote(o)},destination_port.ilike.${quote(d)})`)
         .join(',')
 
-      const { data, error: err } = await supabase.from('rail_routes').select(COLUMNS).or(filter)
+      // Paged like the sea lanes. This one is already bounded by the number of distinct rail lanes
+      // the shipments name, so it is not at the cap today — but "bounded by the data" is exactly
+      // what was true of sea_routes right up until it was not, and the fix costs one line.
+      const { data, error: err } = await fetchAllRows(() =>
+        supabase.from('rail_routes').select(COLUMNS).or(filter),
+      )
 
       if (cancelled) return
       if (err) {

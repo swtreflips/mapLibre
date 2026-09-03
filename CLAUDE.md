@@ -144,6 +144,14 @@ create policy sea_routes_anon_read on public.sea_routes for select to anon using
 That repo's migration history is drifted — **`supabase db push` must not be run on it**; apply SQL
 in the editor and add a migration file afterwards as a record.
 
+**READ IN PAGES, NOT IN ONE SHOT.** PostgREST caps a response at **1000 rows** and says nothing
+about it — no error, no flag, just a shorter array in no particular order. `sea_routes` held 486
+rows when this hook was written, so a single `select` was fine; the port matrices took it to
+**2,373**, and the app quietly kept seeing 1000 of them. The lane that fell outside happened to be
+`Nhava Sheva - Pipavav`, so a vessel whose first leg had no geometry was dropped from the map
+entirely, with nothing anywhere saying why. Use `fetchAllRows` from
+[lib/supabase.js](src/lib/supabase.js) for any table read without a narrow filter.
+
 [useRoutes.js](src/hooks/useRoutes.js) normalizes each row to `{ key, coordinates }` keyed by
 `normalizeKey("origin - destination")`. Derive port points from the geometry:
 **`polCoords = coordinates[0]`, `podCoords = coordinates[coordinates.length - 1]`** (no separate
