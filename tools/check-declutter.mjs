@@ -101,52 +101,5 @@ console.log('\nper-marker radii\n')
     dist(out[0], out[1]) >= 54.9, true)
 }
 
-// ── Anchors: markers that must be cleared but never move ─────────────────────────────
-//
-// A vessel at the end of its polyline is ON its discharge port, which is where that port's card is
-// drawn. Two things on one point, and the top one takes every click.
-//
-// The rail leg dodges the same collision by starting 3% along its lane, and that unit does NOT
-// survive the crossing to ocean: 3% of a 1,300 km rail lane is 38 km, but 3% of a 19,000 km ocean
-// lane is 580 km — a thousand pixels at z7, which would throw the ship off the far side of the
-// screen from the port it just reached. So the ship is nudged in PIXELS instead, and the card joins
-// the relaxation as an anchor.
-//
-// The failure being guarded against is not a crash. If the card were movable here it would be
-// shoved by this pass and shoved again by its own, drifting a little further every frame — a card
-// that slowly walks away from its port, with nothing in the console.
-console.log('\npinned markers take part but do not move\n')
-{
-  const pts = [at(100, 100), at(100, 100)]
-  const offs = relaxOverlaps(pts, [15, 20], 5, 24, [false, true])
-  check('the anchor stays exactly where it is', offs[1], [0, 0])
-  const out = moved(pts, offs)
-  check('...and the movable one clears it completely', dist(out[0], out[1]) >= 39.9, true)
-
-  // Against a movable partner the correction is split; against an anchor it is not. The ship has
-  // to cover the whole distance itself or it ends up half-way under the card.
-  const free = moved(pts, relaxOverlaps(pts, [15, 20], 5))
-  check('a free pair splits the push, an anchored pair does not',
-    Math.round(dist(free[0], pts[0])) < Math.round(dist(out[0], pts[0])), true)
-
-  // Two anchors cannot resolve anything between them, and trying would move a marker whose whole
-  // purpose is to stay put. Ports overlapping each other are their own pass's business.
-  const both = relaxOverlaps([at(0, 0), at(5, 0)], [15, 15], 5, 24, [true, true])
-  check('two anchors are left alone', both, [[0, 0], [0, 0]])
-
-  // One ship, several cards — the real shape of the call. The ship must clear all of them.
-  const many = [at(0, 0), at(0, 0), at(10, 10), at(-8, 4)]
-  const mo = relaxOverlaps(many, [15, 20, 20, 20], 5, 24, [false, true, true, true])
-  const mv = moved(many, mo)
-  check('cards never move, whatever the ship does',
-    JSON.stringify(mo.slice(1)), JSON.stringify([[0, 0], [0, 0], [0, 0]]))
-  check('...and the ship ends up clear of every one',
-    mv.slice(1).every((c, i) => dist(mv[0], c) >= 15 + [20, 20, 20][i] + 5 - 0.1), true)
-
-  // Omitting the argument must behave exactly as before — every existing caller passes four args.
-  check('no pinned argument means nothing is pinned',
-    JSON.stringify(relaxOverlaps(pts, [15, 20], 5, 24)), JSON.stringify(relaxOverlaps(pts, [15, 20], 5)))
-}
-
 console.log(failed === 0 ? '\nAll declutter checks passed.' : `\n${failed} check(s) FAILED.`)
 process.exit(failed === 0 ? 0 : 1)

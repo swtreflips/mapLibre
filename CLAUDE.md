@@ -1180,24 +1180,6 @@ yielding an empty list reads as a bug rather than an empty set.
   railcar therefore fills the tray and does nothing to the map — its holder carries
   `remaining: null` so the selection line stays empty.
 - **Ports:** selecting fills the tray; no dashed line, no camera move.
-- **A vessel never sits under a port card.** A ship at the end of its polyline is ON its discharge
-  port, which is exactly where that port's card is drawn — two things on one point, and the top one
-  takes every click. `spreadStackedVessels` puts the cards into its relaxation as **anchors**:
-  markers that must be cleared but that this pass may not move, because they are placed by
-  `applyPortDeclutter` and two passes shoving the same card would walk it away from its port a
-  little further every frame.
-
-  **Not a fraction of the lane, which is how the rail leg does it.** `RAIL_START` starts a railcar
-  3% along its track, and that unit does not survive the crossing: 3% of a 1,300 km rail lane is a
-  38 km nudge, but 3% of a 19,357 km ocean lane is **580 km** — a thousand pixels at z7, throwing
-  the ship off the far side of the screen from the port it had just reached. Overlap is a pixel
-  phenomenon, and pixels are the one unit that means the same thing on both. Measured, the nudge is
-  a constant ~46 px and the geographic cost falls away as you zoom in — 520 km at z2, 91 at z5, 3 at
-  z10 — where the fraction would have stayed 580 km at every zoom forever.
-
-  `portMarkerGeometry` computes the projection, the sizing and the port relaxation **once**, read by
-  both passes. A second copy of the sizing curve is how a ship comes to clear a card of the wrong
-  size; a second copy of the relaxation is how it comes to dodge a card that has itself moved.
 - **Close ports are de-cluttered in pixel space** — `relaxOverlaps` in
   [declutter.js](src/map/declutter.js) pushes overlapping markers apart along the line between
   them, so relative bearing survives, and the offset goes on the `Marker` rather than the `lngLat`.

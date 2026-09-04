@@ -184,11 +184,7 @@ const remainingFC = (remaining) => {
 // card of fixed PIXEL size. Measured against the New York card — clear from about z5.5 up (50 px
 // at z6.5), but only ~5 px at z4, where the whole 1,281 km lane spans well under 200 px and the
 // railcar still sits under the card. Fixing that properly means nudging in screen space, which is
-// what relaxOverlaps in src/map/declutter.js already does for close ports — and what
-// spreadStackedVessels now does for the SEA leg's version of this collision, where a fraction of
-// the lane was never going to work (3% of a 19,000 km ocean lane is 580 km). Rail keeps the
-// fraction because 3% of a 1,300 km lane is a sane 38 km, and because moving every railcar to fix
-// a low-zoom case is a change with a much bigger blast radius than the one it fixes.
+// what relaxOverlaps in src/map/declutter.js already does for close ports.
 const RAIL_START = 0.03
 const railProgress = (p) => RAIL_START + p * (1 - RAIL_START)
 
@@ -253,36 +249,22 @@ const CARD_RADIUS_FACTOR = 0.42
 // The offset goes on the MARKER, never the lngLat: the marker still knows where its port really
 // is, and the displacement is presentation only. It also composes cleanly with our inner-element
 // transform, which MapLibre does not touch.
-/**
- * Where the port markers actually END UP on screen — projected, sized, and displaced by their own
- * relaxation.
- *
- * ONE COMPUTATION, TWO READERS. The port pass turns this into DOM offsets; the vessel pass treats
- * the results as anchors to dodge. A second copy of the sizing curve is how a ship would come to
- * clear a card of the wrong size, and a second copy of the RELAXATION is how it would dodge a card
- * that is no longer there — the displaced position is the one a reader sees and clicks, so it is
- * the one to avoid.
- */
-function portMarkerGeometry(map, ports) {
+function applyPortDeclutter(map, ports, cards) {
+  if (ports.length < 2) {
+    for (const port of ports) cards.get(port.key)?.marker.setOffset([0, 0])
+    return
+  }
   const zoom = map.getZoom()
   const asCard = cardMode(zoom) === 'card'
   const scale = asCard ? cardScale(zoom) : bubbleScale(zoom)
+
   const points = ports.map((p) => map.project(p.coordinates))
   const radii = ports.map((p) =>
     asCard
       ? CARD_BASE_PX * scale * CARD_RADIUS_FACTOR
       : bubbleRadius(p.statuses.length) * scale,
   )
-  const offsets = ports.length < 2 ? points.map(() => [0, 0]) : relaxOverlaps(points, radii, DECLUTTER_GAP)
-  return { points, radii, offsets }
-}
-
-function applyPortDeclutter(map, ports, cards) {
-  if (ports.length < 2) {
-    for (const port of ports) cards.get(port.key)?.marker.setOffset([0, 0])
-    return
-  }
-  const { offsets } = portMarkerGeometry(map, ports)
+  const offsets = relaxOverlaps(points, radii, DECLUTTER_GAP)
   ports.forEach((port, i) => {
     // Markers that do not overlap get exactly [0, 0] back, so a lone port is never displaced and
     // every marker returns to its true position as soon as zoom separates them.
@@ -402,10 +384,8 @@ const VESSEL_RADIUS_PX = 15
  * `zoomend`; panning cannot change the pixel distance between two points, so nothing else is
  * needed.
  */
-function spreadStackedVessels(map, features, byId, ports = []) {
-  // ONE SHIP IS ENOUGH TO NEED THIS. It used to take two, back when the only thing a hull could
-  // collide with was another hull; a lone ship arriving at its port still lands on that port's card.
-  if (!features.length) return
+function spreadStackedVessels(map, features, byId) {
+  if (features.length < 2) return
 
   // STABLE ORDER, because relaxOverlaps is deterministic only for a given input order — its own
   // doc says so, and unsorted input would let two ships swap offsets between frames and jitter in
@@ -419,29 +399,8 @@ function spreadStackedVessels(map, features, byId, ports = []) {
   const scale = interpolateStops(VESSEL_SCALE_STOPS, map.getZoom())
   const radius = VESSEL_RADIUS_PX * scale
 
-  // THE PORT CARDS JOIN THE PASS AS ANCHORS — they must be cleared, but they are placed by their
-  // own pass and are not this one's to move.
-  //
-  // A ship at the end of its polyline is ON its discharge port, which is exactly where that port's
-  // card is drawn: two things on one point, and the top one takes every click. The obvious fix is
-  // the one the rail leg uses — start 3% along the lane (RAIL_START) — but that unit does not
-  // survive the crossing. A rail lane is ~1,300 km, so 3% is a 38 km nudge; an ocean lane is
-  // 10,000-20,000 km, so 3% is 580 km, which at z7 is a thousand pixels. The ship would be thrown
-  // off the far side of the screen from the port it had just reached.
-  //
-  // So it is done where the problem actually lives. Overlap is a PIXEL phenomenon, and pixels are
-  // the one unit that means the same thing on a 1,300 km lane and a 19,000 km one. It also costs
-  // nothing in honesty: the displacement is presentation only, it is the smallest that separates
-  // the two, and it falls to zero the moment zoom pulls them apart — the ship returns to sitting
-  // exactly on its port.
-  const anchors = portMarkerGeometry(map, ports)
-  const points = [
-    ...order.map((f) => map.project(f.geometry.coordinates)),
-    ...anchors.points.map((q, i) => ({ x: q.x + anchors.offsets[i][0], y: q.y + anchors.offsets[i][1] })),
-  ]
-  const radii = [...order.map(() => radius), ...anchors.radii]
-  const pinned = [...order.map(() => false), ...anchors.radii.map(() => true)]
-  const offsets = relaxOverlaps(points, radii, DECLUTTER_GAP, 24, pinned).slice(0, order.length)
+  const points = order.map((f) => map.project(f.geometry.coordinates))
+  const offsets = relaxOverlaps(points, order.map(() => radius), DECLUTTER_GAP)
 
   offsets.forEach(([dx, dy], i) => {
     if (dx === 0 && dy === 0) return // untouched: this ship overlapped nothing
@@ -507,30 +466,7 @@ function buildFeatures(shipments, routesByKey, railByKey, map, portPoints, match
     })
   }
 
-  // ONE CARD PER PORT, not one icon per container. The old golden-angle spiral fanned every
-  // container around its port, which answered the wrong question — you counted scattered boxes
-  // instead of reading a port's load at a glance, and a busy port became a smear.
-  const ports = []
-  for (const p of portHolders) {
-    if (!p.coordinates) continue // neither a port row nor a route: nothing to anchor to
-    byId.set(p.key, { holder: p, remaining: null })
-    ports.push({
-      key: p.key,
-      name: p.name,
-      coordinates: p.coordinates,
-      // Through `portKey`, not the holder key. An ORIGIN card is keyed `origin|<port>` so it can
-      // never merge with a discharge card at the same place, and looking that up in portPoints
-      // would miss every time — reporting every load port as "not matched to a port row".
-      anchored: Boolean(portPoints?.get(p.portKey ?? p.key)),
-      statuses: p.containers.map((c) => ({ tone: containerColor(c), matched: isMatch(c) })),
-      // Only for the zoomed-out bubble, which shows "2/5" rather than a stack. null with no filter
-      // so the bubble knows to print a plain total.
-      matched: matchedIds ? p.containers.filter(isMatch).length : null,
-    })
-  }
-
-  // BEFORE the vessel pass, not after: the ships dodge these cards, so the cards have to exist.
-  spreadStackedVessels(map, shipFeatures, byId, ports)
+  spreadStackedVessels(map, shipFeatures, byId)
 
   // THE INLAND LEG. The same problem as the vessel — a thing travelling a polyline between two
   // dates — and it reuses the same helpers rather than reimplementing them. What differs is where
@@ -564,6 +500,28 @@ function buildFeatures(shipments, routesByKey, railByKey, map, portPoints, match
         textOffset: sternOffset(bearing, mapBearing),
         matched: t.containers.some(isMatch) ? 1 : 0,
       },
+    })
+  }
+
+  // ONE CARD PER PORT, not one icon per container. The old golden-angle spiral fanned every
+  // container around its port, which answered the wrong question — you counted scattered boxes
+  // instead of reading a port's load at a glance, and a busy port became a smear.
+  const ports = []
+  for (const p of portHolders) {
+    if (!p.coordinates) continue // neither a port row nor a route: nothing to anchor to
+    byId.set(p.key, { holder: p, remaining: null })
+    ports.push({
+      key: p.key,
+      name: p.name,
+      coordinates: p.coordinates,
+      // Through `portKey`, not the holder key. An ORIGIN card is keyed `origin|<port>` so it can
+      // never merge with a discharge card at the same place, and looking that up in portPoints
+      // would miss every time — reporting every load port as "not matched to a port row".
+      anchored: Boolean(portPoints?.get(p.portKey ?? p.key)),
+      statuses: p.containers.map((c) => ({ tone: containerColor(c), matched: isMatch(c) })),
+      // Only for the zoomed-out bubble, which shows "2/5" rather than a stack. null with no filter
+      // so the bubble knows to print a plain total.
+      matched: matchedIds ? p.containers.filter(isMatch).length : null,
     })
   }
 
