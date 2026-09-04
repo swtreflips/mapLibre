@@ -176,6 +176,39 @@ entirely, with nothing anywhere saying why. Use `fetchAllRows` from
 **`polCoords = coordinates[0]`, `podCoords = coordinates[coordinates.length - 1]`** (no separate
 columns). Fetch once on mount; join to shipments by key; feed the vessel/container sources.
 
+**THE GEOMETRY DRAWN IS NOT THE GEOMETRY STORED.** `sea_routes` keeps searoute's output as the
+routed path of record; [smoothRoute.js](src/lib/smoothRoute.js) turns it into something worth
+looking at, at leg construction in `holders.js`. Four stages, and only the third takes a liberty:
+
+1. **Dedupe** coincident points — searoute writes the antimeridian crossing TWICE, so every Pacific
+   route carried a zero-length segment between two fake kinks (a 98° and a 52° on the Qingdao lane).
+2. **Densify** segments over 150 km along the **great circle**. A straight lon/lat line is not the
+   path a ship sails; this is *more* faithful than what it replaces, and is most of the flow.
+3. **Chamfer** each corner by `min(25% of the shorter adjacent segment, 80 km)`. **That formula is
+   the entire safety argument** — nothing here knows where land is, and does not need to: a corner
+   tight enough to matter has short segments. The 138° harbour hairpin sits between 5 km and 11 km
+   legs and is cut by 1.25 km; a mid-Pacific dog-leg between 400 km straights is cut by the full 80.
+4. **Two Chaikin passes**, bounded by the chamfer.
+
+Measured, before → after: mean turn **14.7° → 1.4°** (Qingdao), turns over 60° **4 → 0** (Nhava
+Sheva), length change **under 2%**. Endpoints are bit-identical — the line must terminate on its
+port.
+
+**Order matters and is silent when wrong.** Chamfer runs BEFORE densify: the cut is a quarter of the
+shorter adjacent segment, which only means anything while the segments are the ones searoute routed.
+Densifying first caps everything at 150 km, so an ocean dog-leg gets 37 km instead of 80 — and the
+short-segments-mean-land contrast that keeps the line off a coast largely disappears.
+
+**Longitudes must stay unwrapped.** These run past +180 (a Pacific route reaches 241.9) so the line
+draws east rather than jumping back over Eurasia, and every trigonometric step returns −180..180.
+Each interpolated point is shifted by whole turns to stay within 180° of its predecessor. Get it
+wrong and the route streaks across the entire map. Guarded by `npm run test:smooth`.
+
+**One array feeds both the line and the ship.** `positionOnItinerary` walks `leg.coords` and
+`remaining` is sliced from it, so smoothing for display alone would leave the hull beside its own
+track. Doing it at leg construction also means only the ~23 lanes in use are smoothed rather than
+all 2,544 `useRoutes` holds.
+
 Two data caveats: routes are searoute graph paths, so some lanes take non-obvious passages —
 that's data, not a plotting bug. And port names in this table are **not normalised** at the source
 (`Singapore`, `SINGAPORE` and `Singapore, Singapore` are three legal origins), so a lane that fails

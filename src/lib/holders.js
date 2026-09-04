@@ -17,6 +17,7 @@ import {
   canonicalPort,
   facilityKey,
 } from './vesselMath'
+import { smoothLane } from './smoothRoute'
 
 // The sea lane. Two spellings are live: `route` on shipments that end at their discharge port, and
 // `sea_route` on intermodal ones that also carry a `rail_route`. Neither column exists in the
@@ -189,7 +190,13 @@ function buildItinerary(key, rows, routesByKey) {
       from = { ...from, date: call.date }
       continue
     }
-    const coords = routesByKey?.get(normalizeKey(`${from.name} - ${call.name}`))
+    const raw = routesByKey?.get(normalizeKey(`${from.name} - ${call.name}`))
+    // SMOOTHED HERE, AND ONLY HERE. searoute's output is the routed path of record and stays that
+    // way in the database; what a leg carries is the drawn version of it (smoothRoute.js). Doing it
+    // at leg construction means `positionOnItinerary` and the dashed `remaining` line read the SAME
+    // array, so the hull cannot drift beside its own track — and only the ~23 lanes actually in use
+    // are smoothed, rather than all 2,544 that useRoutes holds.
+    const coords = raw ? smoothLane(raw) : raw
     if (!coords || coords.length < 2) {
       // TRUNCATE, DO NOT DISCARD. The containers are still aboard and still belong in the tray;
       // the map just stops claiming a path it has no geometry for. MapView reports this in DEV.

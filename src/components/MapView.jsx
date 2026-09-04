@@ -710,9 +710,16 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': palette.route,
-          'line-width': 1.8,
+          // Scaled with zoom rather than pinned at 1.8. A hairline shimmers at world view and looks
+          // thin once you are in close enough to read the coast it follows.
+          'line-width': ['interpolate', ['linear'], ['zoom'], 2, 1.6, 8, 2.6],
           'line-opacity': 0.85,
-          'line-dasharray': [2, 2],
+          // A LONGER DASH. [2, 2] on a diagonal reads as a row of dots and stair-steps, which is
+          // half of why the route looked angular whatever the path underneath was doing.
+          //
+          // Still dashed, deliberately: the dash is what separates the ocean leg from the SOLID
+          // drayage line, and that distinction has to survive for a colourblind reader.
+          'line-dasharray': [3, 2.5],
         },
       })
 
