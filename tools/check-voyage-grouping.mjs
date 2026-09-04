@@ -431,7 +431,16 @@ console.log('\nposition along the itinerary\n')
   check('...drawn as a curve rather than a straight segment', early.remaining[1].length > 2, true)
 
   // Between the calls: the leg the OLD model had no way to express at all.
-  const between = positionOnItinerary(legs, new Date(2099, 9, 8)) // 8 Oct, NY 4 Oct -> Norfolk 13 Oct
+  //
+  // NEW YORK MUST REPORT AN ACTUAL ARRIVAL FOR THIS TO BE THE ANSWER. A leg is only left behind
+  // once something says the call ending it was made; without that this ship holds at New York, and
+  // the block below asserts exactly that. `multi` itself has no actuals, so the fixture that is
+  // past a call needs one.
+  const landedNY = holders([
+    drop({ shipment: 'A', actual_portdate: '2099-10-04' }),
+    drop({ shipment: 'B', ...NORFOLK }),
+  ])[0].legs
+  const between = positionOnItinerary(landedNY, new Date(2099, 9, 8)) // 8 Oct, NY 4 Oct -> Norfolk 13 Oct
   check('between the calls, on leg 2', between.index, 1)
   check('...with only one line left', between.remaining.length, 1)
 
@@ -456,11 +465,13 @@ console.log('\nposition along the itinerary\n')
   }
 
   // On a leg long enough to sail, it IS partway — and exactly `days x speed` from the far end.
+  // `endActual` on the first leg, because these are hand-built rather than from `buildItinerary`:
+  // without it the ship is held at New York, which is the whole point of the rule.
   const longHop = [
     { from: 'Cartagena, Colombia', to: 'New York, NY', coords: [[-75, 10], [-74, 40]],
-      start: new Date(2099, 5, 12), end: new Date(2099, 9, 4) },
+      start: new Date(2099, 5, 12), end: new Date(2099, 9, 4), endActual: new Date(2099, 9, 4) },
     { from: 'New York, NY', to: 'Far, XX', coords: [[-74, 40], [-14, 40]],
-      start: new Date(2099, 9, 4), end: new Date(2099, 9, 13) },
+      start: new Date(2099, 9, 4), end: new Date(2099, 9, 13), endActual: null },
   ]
   // 10 Oct: six days into a nine-day leg, so past the midpoint and measuring INWARD from the call.
   const sailing = positionOnItinerary(longHop, new Date(2099, 9, 10))
@@ -477,9 +488,106 @@ console.log('\nposition along the itinerary\n')
 
   // Past every call, which is reachable while a box is aboard with no arrival reported. Held at
   // the last port rather than extrapolated off the end of the line.
-  const after = positionOnItinerary(legs, new Date(2099, 11, 1))
+  const after = positionOnItinerary(landedNY, new Date(2099, 11, 1))
   check('past the last call, held at the final port',
     JSON.stringify(after.pos), JSON.stringify([-76.3, 36.9]))
+}
+
+// ── A CALL IS NOT MADE UNTIL SOMETHING SAYS IT WAS ─────────────────────────────────────
+//
+// RUBY TOWER carries two boxes from Pipavav, one for Los Angeles and one for Oakland. The Los
+// Angeles box has no `actual_portdate`. The day after its EXPECTED one passed, the ship was drawn
+// 319 km up the California coast on the Los Angeles -> Oakland leg — a leg it had no evidence of
+// having started.
+//
+// The cause is one fallback. `callDate` reads `actual_portdate || expected_portdate`, so a leg on
+// the discharge side can be bounded by a SCHEDULE, and `activeLegAt` abandoned it on the day it was
+// due rather than the day it happened. A leg is now only left behind once the call ending it
+// reports an actual date that has arrived.
+//
+// The LOAD side already behaved this way, but only by accident: `add` gives a load call no fallback,
+// and `assignSailings` sends any box without an `actual_shipping` to `solo|<id>` so it never joins a
+// sailing at all. Two unrelated mechanisms adding up to the right answer is not a guarantee, so the
+// same rule now covers both kinds of call and the load case is asserted below.
+console.log('\nthe ship waits for evidence that it called\n')
+{
+  const at = (y, m, d) => new Date(y, m, d)
+  const NY = [-74, 40]
+  const legsOf = (rows) => holders(rows)[0].legs
+
+  // No actual anywhere: the New York ETA has passed and nothing reports an arrival.
+  const unconfirmed = legsOf([drop({ shipment: 'A' }), drop({ shipment: 'B', ...NORFOLK })])
+  const held = positionOnItinerary(unconfirmed, at(2099, 9, 8)) // 8 Oct, NY was due 4 Oct
+  check('an unreported call holds the ship on the leg into it', held.index, 0)
+  check('...parked on the port itself', Math.round(haversine(held.pos, NY)), 0)
+  // The user-visible half: the run it still owes AND the leg beyond it both stay on screen.
+  check('...still drawing both lines', held.remaining.length, 2)
+
+  // The same itinerary, with the arrival reported.
+  const confirmed = legsOf([
+    drop({ shipment: 'A', actual_portdate: '2099-10-04' }),
+    drop({ shipment: 'B', ...NORFOLK }),
+  ])
+  check('a reported arrival releases it', positionOnItinerary(confirmed, at(2099, 9, 8)).index, 1)
+
+  // AN ACTUAL DATE IS NOT EVIDENCE UNTIL IT ARRIVES. A feed that pre-fills the column with a
+  // planned date must not walk the ship off the leg early.
+  //
+  // 10 Oct: after the 8th this is measured on, but still before Norfolk on the 13th. Pushing it
+  // past Norfolk would reorder the two discharges and send the ship looking for a
+  // `Cartagena - Norfolk` lane the fixture deliberately does not define.
+  const future = legsOf([
+    drop({ shipment: 'A', actual_portdate: '2099-10-10' }),
+    drop({ shipment: 'B', ...NORFOLK }),
+  ])
+  check('an actual date still in the future is not confirmation',
+    positionOnItinerary(future, at(2099, 9, 8)).index, 0)
+
+  // THE FIRST BOX TO LAND PROVES THE CALL, so `actual` folds earliest while `date` folds latest.
+  // Two boxes come off at New York; only one has reported.
+  const partial = legsOf([
+    drop({ shipment: 'A', actual_portdate: '2099-10-04' }),
+    drop({ shipment: 'B' }),
+    drop({ shipment: 'C', ...NORFOLK }),
+  ])
+  check('one box off the ship is enough to prove the call',
+    positionOnItinerary(partial, at(2099, 9, 8)).index, 1)
+
+  // A CONFIRMED CALL RELEASES EVERY HOLD BEFORE IT. Norfolk reports an arrival while New York
+  // never did — the ship demonstrably passed New York, so the gap is in the data, not the voyage.
+  // Without this the marker freezes at New York while the tray shows a box already at Norfolk.
+  const gap = legsOf([
+    drop({ shipment: 'A' }),
+    drop({ shipment: 'B', ...NORFOLK, actual_portdate: '2099-10-13' }),
+  ])
+  check('a later arrival lifts an earlier hold',
+    positionOnItinerary(gap, at(2099, 10, 1)).index, 1)
+
+  // THE LOAD SIDE, asserted rather than assumed. Nhava Sheva -> Pipavav -> Los Angeles: the leg out
+  // of Pipavav cannot start before the box loaded there actually sailed.
+  //
+  // The DEPARTURES must be in the real past or `shipmentState` calls these boxes `future` and they
+  // become origin cards rather than cargo on a hull, leaving no vessel holder to read legs from.
+  // The discharge stays far future so they are still aboard whenever this runs.
+  const multiLoad = legsOf([
+    ship({ shipment: 'A', port_of_loading: 'Nhava Sheva, India', actual_shipping: '2026-06-01',
+      port_of_discharge: 'Los Angeles, CA', Lastcy: 'Los Angeles, CA',
+      route: 'Nhava Sheva, India - Los Angeles, CA', expected_portdate: '2099-08-01' }),
+    ship({ shipment: 'B', port_of_loading: 'Pipavav, India', actual_shipping: '2026-06-04',
+      port_of_discharge: 'Los Angeles, CA', Lastcy: 'Los Angeles, CA',
+      route: 'Pipavav, India - Los Angeles, CA', expected_portdate: '2099-08-01' }),
+  ])
+  check('a load call carries its own evidence', Boolean(multiLoad[0].endActual), true)
+  check('...before the second pickup, still on the leg into it',
+    positionOnItinerary(multiLoad, at(2026, 5, 2)).index, 0)
+  check('...after it, on the leg out of it',
+    positionOnItinerary(multiLoad, at(2026, 6, 15)).index, 1)
+
+  // A SINGLE-LEG VOYAGE IS UNTOUCHED. One overdue leg still parks at its port, which is what it
+  // did before any of this existed — the rule only decides which of SEVERAL legs is current.
+  const solo = legsOf([drop({ shipment: 'A' })])
+  check('a single overdue leg still sits at its port',
+    Math.round(haversine(positionOnItinerary(solo, at(2099, 11, 1)).pos, NY)), 0)
 }
 
 // ── NOT SAILED YET: the origin card ────────────────────────────────────────────────────

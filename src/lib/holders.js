@@ -140,20 +140,32 @@ const callDate = (s) => parseYMD(s.actual_portdate) || parseYMD(s.expected_portd
 function buildItinerary(key, rows, routesByKey) {
   const first = rows[0]
 
-  const add = (map, port, date, kind) => {
+  // `date` folds LATEST, `actual` folds EARLIEST, and the two answer different questions about one
+  // call. A ship LEAVES when the last box is off, so the date that bounds the leg is the last one.
+  // A ship WAS THERE the moment the first box came off, so the evidence that it called is the first
+  // one. Folding `actual` latest would keep a ship held while one of its boxes has already landed.
+  const add = (map, port, date, actual, kind) => {
     const k = facilityKey(port)
     if (!k || !date) return
     const id = `${kind}|${k}`
     const seen = map.get(id)
-    if (!seen) map.set(id, { key: k, name: canonicalPort(port), date, kind })
-    else if (date > seen.date) seen.date = date
+    if (!seen) map.set(id, { key: k, name: canonicalPort(port), date, actual: actual ?? null, kind })
+    else {
+      if (date > seen.date) seen.date = date
+      if (actual && (!seen.actual || actual < seen.actual)) seen.actual = actual
+    }
   }
 
   const loadMap = new Map()
   const dischargeMap = new Map()
   for (const s of rows) {
-    add(loadMap, s.port_of_loading, parseYMD(s.actual_shipping), 'load')
-    add(dischargeMap, s.port_of_discharge, callDate(s), 'discharge')
+    // WHAT PROVES THE CALL WAS MADE, which is not the same field that dates it. A discharge is dated
+    // by `actual_portdate` FALLING BACK to `expected_portdate` (`callDate`), and that fallback is a
+    // schedule, not an event — so the actual is read separately and on its own. A load has no such
+    // fallback, so for loads the two are the same date; see `endActual` below for why the rule is
+    // still applied to both.
+    add(loadMap, s.port_of_loading, parseYMD(s.actual_shipping), parseYMD(s.actual_shipping), 'load')
+    add(dischargeMap, s.port_of_discharge, callDate(s), parseYMD(s.actual_portdate), 'discharge')
   }
 
   const loads = [...loadMap.values()].sort((a, b) => a.date - b.date)
@@ -187,7 +199,10 @@ function buildItinerary(key, rows, routesByKey) {
     // The same complex twice in a row is not a leg — a box discharged where another loaded, or two
     // berths of one gateway. Carry the later date forward so the next leg is still bounded right.
     if (from.key === call.key) {
-      from = { ...from, date: call.date }
+      // Carry the EVIDENCE forward too, not just the date. The merged pair is one gateway, so the
+      // earliest actual either half reports is what proves the ship was at it.
+      const actual = [from.actual, call.actual].filter(Boolean).sort((a, b) => a - b)[0] ?? null
+      from = { ...from, date: call.date, actual }
       continue
     }
     const raw = routesByKey?.get(normalizeKey(`${from.name} - ${call.name}`))
@@ -203,7 +218,18 @@ function buildItinerary(key, rows, routesByKey) {
       missingLeg = `${from.name} - ${call.name}`
       break
     }
-    legs.push({ from: from.name, to: call.name, coords, start: from.date, end: call.date })
+    // `endActual` is what lets a leg be LEFT BEHIND: the date something actually reported at the
+    // call this leg ends on, or null if nothing has. `end` alone cannot serve, because on a
+    // discharge it may be an `expected_portdate` — a schedule, which would abandon the leg on the
+    // day it was due rather than on the day it happened. `activeLegAt` is where it is read.
+    legs.push({
+      from: from.name,
+      to: call.name,
+      coords,
+      start: from.date,
+      end: call.date,
+      endActual: call.actual ?? null,
+    })
     from = call
   }
 

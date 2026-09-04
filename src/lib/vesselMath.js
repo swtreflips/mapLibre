@@ -125,13 +125,38 @@ export function positionAtProgress(coords, progress) {
  * the day itself the answer is "leg 1, arrived" rather than "leg 2, just departed" — the two put
  * the marker in the same place, and the first is what the tray should say.
  *
+ * ...OR WHOSE CALL NOTHING HAS CONFIRMED. A leg is only left behind once something actually
+ * reported the ship at the call that ends it. `end` cannot decide that alone, because on a
+ * discharge it falls back to `expected_portdate` (holders.js `callDate`) — a schedule, not an
+ * event — so a leg bounded by a guess was being abandoned on the day it was DUE.
+ *
+ * RUBY TOWER is the case. Its Los Angeles box has no `actual_portdate`; the day after the expected
+ * one passed, the ship was drawn 319 km up the California coast on the Los Angeles -> Oakland leg,
+ * with nothing saying it ever reached Los Angeles. Held, it sits on the port — which is what
+ * `progressByTimeLeft` already does for any leg whose end has passed, so nothing below changes.
+ *
+ * A FUTURE ACTUAL IS NOT CONFIRMATION. The date has to have arrived.
+ *
+ * A CONFIRMED CALL RELEASES EVERY HOLD BEFORE IT. If Oakland reports an arrival while Los Angeles
+ * is still blank, the ship demonstrably passed Los Angeles and the gap is in the data, not the
+ * voyage. Without this the marker would freeze at Los Angeles while the tray showed a box already
+ * sitting at Oakland — the map contradicting itself.
+ *
  * @returns {{index:number, leg:object, progress:number}|null}
  */
 export function activeLegAt(legs, today = new Date()) {
   if (!legs?.length) return null
   const mid = midnight(today)
+
+  // The furthest call proven to have been made. Everything at or before it is confirmed by
+  // implication, whatever its own `endActual` says.
+  let proven = -1
   for (let i = 0; i < legs.length; i++) {
-    if (legs[i].end && mid <= legs[i].end) {
+    if (legs[i].endActual && midnight(legs[i].endActual) <= mid) proven = i
+  }
+
+  for (let i = 0; i < legs.length; i++) {
+    if ((legs[i].end && mid <= legs[i].end) || i > proven) {
       return { index: i, leg: legs[i], progress: computeProgress(legs[i].start, legs[i].end, today) }
     }
   }

@@ -320,6 +320,55 @@ and the dwell is all at one end.
 schedule tighter than the service speed is sailed at the schedule, so the box still lands on its
 date rather than being held past it. Guarded by `npm run test:grouping`.
 
+#### A call is not made until something says it was
+
+**A leg is only left behind once the call that ENDS it reports an actual date that has arrived.**
+`activeLegAt` used to take the first leg whose `end` had not passed, and on the discharge side that
+`end` can be a guess:
+
+```js
+const callDate = (s) => parseYMD(s.actual_portdate) || parseYMD(s.expected_portdate)
+```
+
+**That fallback was the whole bug.** A leg bounded by a schedule was abandoned on the day it was
+*due* rather than the day it *happened*. RUBY TOWER carries two boxes from Pipavav, for Los Angeles
+and Oakland. The Los Angeles box has no `actual_portdate` — nothing says the ship ever got there —
+and the day after its expected date passed it was drawn **319 km up the California coast** on the
+Los Angeles → Oakland leg. Held, it sits on Los Angeles and draws **two** dashed lines instead of
+one: the run it still owes, and Oakland beyond it. Measured across the snapshot, it was the only
+sailing of 23 affected, and the only one whose position this changed.
+
+Each call carries `actual`; each leg carries `endActual`, the `actual` of the call it ends on.
+Within one call the two folds run in **opposite directions**, and that is deliberate:
+
+| | | |
+|---|---|---|
+| `date` | the **latest** among its rows | a ship leaves when the *last* box is off |
+| `actual` | the **earliest** among its rows | the *first* box to land already proves it was there |
+
+**A future actual is not confirmation** — a feed that pre-fills the column with a planned date must
+not walk the ship off early. **A confirmed call releases every hold before it**: if Oakland reports
+an arrival while Los Angeles never did, the ship demonstrably passed Los Angeles and the gap is in
+the data, not the voyage. Without that the marker would freeze at Los Angeles while the tray showed
+a box already sitting at Oakland — the map contradicting itself.
+
+**The load side already behaved this way, but only by accident.** `add` gives a load call no
+fallback (it is dated by `actual_shipping` alone), and `assignSailings` sends any box *without* an
+`actual_shipping` to `solo|<id>` so it never joins a sailing at all. Two unrelated mechanisms
+happened to add up to the right answer, and nothing said so. The same rule now covers both kinds of
+call, which is a no-op on the load side today and locks the invariant in.
+
+**No new UI, deliberately.** The tray reads `etd`/`eta` from this same `activeLegAt`, so a held ship
+reads "DEPARTED 30 Jul · ETA 3 Sep" against a past date and falls under the existing **Overdue**
+chip. A held ship and a late ship are the same claim: we expected it there and nothing says it is.
+Nothing else changes — `progressByTimeLeft` already returns `1` once `daysLeft <= 0`, so a held ship
+parks on the port exactly as an overdue single-leg voyage always has.
+
+**Legs built by hand need `endActual`.** A missing field reads as unconfirmed and freezes the ship
+at its first call, which is correct as a default and a trap for fixtures. `npm run test:grouping`
+covers the hold, the release, the future-date case, the earliest-wins fold, the downstream override,
+the load side, and that a single-leg voyage is untouched.
+
 Underneath, both still find the point at a fractional distance along the polyline:
 
 > **Once per LEG, not once per voyage.** A sailing that calls at several ports is a chain of legs
