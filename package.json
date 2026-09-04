@@ -15,8 +15,9 @@
     "test:voyage": "node tools/check-voyage-phase.mjs",
     "test:grouping": "node tools/check-voyage-grouping.mjs",
     "test:order": "node tools/check-tray-order.mjs",
-    "test": "npm run test:style && npm run test:flexpolyline && npm run test:voyage && npm run test:grouping && npm run test:order",
-    "test:style": "node tools/check-map-style.mjs"
+    "test": "npm run test:style && npm run test:panel && npm run test:flexpolyline && npm run test:voyage && npm run test:grouping && npm run test:order",
+    "test:style": "node tools/check-map-style.mjs",
+    "test:panel": "node tools/check-panel-width.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.0",

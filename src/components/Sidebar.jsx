@@ -1,10 +1,11 @@
-import { useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { computeStats, SOON_DAYS } from '../lib/stats'
 import { voyagePhase, formatDay, sortByPriority } from '../lib/vesselMath'
 import { KIND_LABELS } from '../lib/search'
 import BrandMark from './BrandMark'
 import ContainerCard from './ContainerCard'
 import SearchBox from './SearchBox'
+import { MIN_WIDTH, MAX_WIDTH, clampWidth, readWidth, writeWidth } from '../lib/panelWidth'
 import './Sidebar.css'
 
 // One number in the Overview. A live count is a BUTTON — clicking it filters the sidebar to the
@@ -248,6 +249,91 @@ function Results({ shipments, matchedIds, filter, onClear }) {
   )
 }
 
+/**
+ * The drag handle on the panel's right edge.
+ *
+ * THE DRAG WRITES TO THE DOM, NOT TO REACT STATE, and that is the whole reason this is a hook
+ * rather than a `useState` in the component. `Sidebar` renders every container card it is showing;
+ * calling setState on each `pointermove` would re-render that entire list sixty times a second for
+ * a number that only CSS consumes. So the pointer handler sets the custom property straight on the
+ * node, and state — plus the localStorage write — happens ONCE, on release.
+ *
+ * State still exists because the width has to survive a re-render for some other reason, and
+ * because the handle's `aria-valuenow` has to be able to report it.
+ */
+function useSidebarWidth() {
+  const ref = useRef(null)
+  const [width, setWidth] = useState(readWidth)
+
+  // Applied to the node rather than through an inline `style` prop, so a mid-drag React render
+  // cannot stomp the value the pointer handler just wrote.
+  const paint = useCallback((px) => {
+    ref.current?.style.setProperty('--sidebar-w', `${px}px`)
+  }, [])
+
+  useEffect(() => { paint(width) }, [width, paint])
+
+  const commit = useCallback((px) => {
+    const next = clampWidth(px)
+    setWidth(next)
+    writeWidth(next)
+    return next
+  }, [])
+
+  const onPointerDown = useCallback((e) => {
+    // Left button only: a right-click on the handle should open the context menu, not start a drag
+    // that nothing will ever end.
+    if (e.button !== 0) return
+    e.preventDefault()
+    const el = ref.current
+    if (!el) return
+    const startX = e.clientX
+    const startW = el.getBoundingClientRect().width
+    let latest = startW
+
+    // Capture, so the drag survives the pointer leaving the 6px strip — which it does immediately,
+    // because the pointer moves faster than the panel edge follows it.
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+    document.body.classList.add('is-resizing')
+
+    const move = (ev) => {
+      latest = clampWidth(startW + (ev.clientX - startX))
+      paint(latest)
+    }
+    const up = () => {
+      document.body.classList.remove('is-resizing')
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+      commit(latest)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    // `pointercancel` fires when the browser takes the pointer over — a touch turning into a
+    // scroll, say. Without it the body keeps `is-resizing` and the whole app stays unselectable.
+    window.addEventListener('pointercancel', up)
+  }, [paint, commit])
+
+  // A drag-only control cannot be used without a mouse, and this is a few lines.
+  const onKeyDown = useCallback((e) => {
+    const STEP = 16
+    const at = {
+      ArrowLeft: () => width - STEP,
+      ArrowRight: () => width + STEP,
+      Home: () => MIN_WIDTH,
+      End: () => MAX_WIDTH,
+    }[e.key]
+    if (!at) return
+    e.preventDefault()
+    commit(at())
+  }, [width, commit])
+
+  // Destructured by the caller rather than used as `panel.x`. The `react-hooks/refs` lint rule
+  // treats ANY property read on an object that carries a ref as a ref access during render, so
+  // returning a bag and reaching into it in JSX trips it on every field.
+  return { ref, width, commit, onPointerDown, onKeyDown }
+}
+
 export default function Sidebar({
   shipments,
   selected,
@@ -260,9 +346,16 @@ export default function Sidebar({
   onClear,
 }) {
   const stats = useMemo(() => computeStats(shipments), [shipments])
+  const {
+    ref: panelRef,
+    width: panelWidth,
+    commit: setPanelWidth,
+    onPointerDown: onResizeStart,
+    onKeyDown: onResizeKey,
+  } = useSidebarWidth()
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" ref={panelRef}>
       {/* The module's only dark surface. Mesh, grain and chart grid — the same three layers
           Freight's rail carries, so the two dark chromes in the estate match. */}
       <div className="sidebar__cap grain ground-grid ground-grid--chrome">
@@ -290,6 +383,24 @@ export default function Sidebar({
       ) : (
         <Overview stats={stats} onCommit={onCommit} />
       )}
+
+      {/* Last child, so it paints over the panel's own edge. `separator` with an orientation and a
+          value range is what a resize handle is in ARIA — it gives the keyboard case a meaning as
+          well as a key handler. */}
+      <div
+        className="sidebar__resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize panel"
+        aria-valuenow={panelWidth}
+        aria-valuemin={MIN_WIDTH}
+        aria-valuemax={MAX_WIDTH}
+        tabIndex={0}
+        onPointerDown={onResizeStart}
+        onKeyDown={onResizeKey}
+        onDoubleClick={() => setPanelWidth(MIN_WIDTH)}
+        title="Drag to resize — double-click to reset"
+      />
     </aside>
   )
 }

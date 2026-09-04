@@ -33,9 +33,23 @@
   z-index: 1;
 }
 
+/*
+  RESIZABLE, between 380px and double that. The panel was fixed at 380, which is right while the map
+  is the subject and wrong the moment it is not — working a search result list against a map nobody
+  is looking at. Past 660px the tray goes to two columns (see .tray__list).
+
+  The width is a CUSTOM PROPERTY, not a class or an inline width, for two reasons. The drag writes
+  it straight to the node so a 60fps pointer move never re-renders the card list (Sidebar.jsx), and
+  the two-column switch reads the panel's real inline size through a container query rather than a
+  number JS decided — so there is no second source of truth to fall out of step with the first.
+
+  The fallback in `var()` is the min, so the panel is correct before React mounts and if the
+  property is ever removed.
+*/
 .sidebar {
-  width: 380px;
-  flex: 0 0 380px;
+  --sidebar-w: 380px;
+  width: var(--sidebar-w, 380px);
+  flex: 0 0 var(--sidebar-w, 380px);
   height: 100vh;
   background: rgb(var(--c-fog-50));
   border-right: 1px solid rgb(var(--c-fog-200));
@@ -43,6 +57,51 @@
   flex-direction: column;
   font-family: var(--font-sans);
   overflow: hidden;
+  /* Anchors the resize handle. The cap sets its own `position: relative` for its pseudo-elements;
+     this is the panel's, and it changes nothing else because every child is already in flow. */
+  position: relative;
+}
+
+/*
+  THE DRAG HANDLE — a 6px strip on the right edge.
+
+  Wider than the 1px border it sits on, because a 1px target is not a target. It carries no fill of
+  its own: the border-right underneath reads as the edge, and this only supplies the cursor and the
+  hit area. On hover and focus it shows, so the affordance exists without a permanent seam down the
+  panel.
+*/
+.sidebar__resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  /* Above the panels, which scroll under it. */
+  z-index: 5;
+  background: transparent;
+  transition: background 120ms ease;
+  /* The strip spans the full height including the dark cap, so the touch target is continuous. */
+  touch-action: none; /* or a touch-drag scrolls the panel instead of resizing it */
+}
+
+.sidebar__resizer:hover,
+.sidebar__resizer:focus-visible {
+  background: rgb(var(--c-signal-600, 173 85 42) / 0.35);
+}
+
+.sidebar__resizer:focus-visible {
+  outline: none; /* the fill IS the focus indicator here; a ring on a 6px strip reads as noise */
+}
+
+/*
+  While dragging, kill selection and force the cursor everywhere. Without the body-level cursor the
+  pointer flickers between col-resize and text as it crosses the map; without user-select the drag
+  highlights the panel's text as it goes.
+*/
+body.is-resizing {
+  user-select: none;
+  cursor: col-resize;
 }
 
 .sidebar .panel {
@@ -191,14 +250,43 @@
   color: rgb(var(--c-fog-500));
 }
 
+/*
+  THE CARD LIST — one column, or two once the panel is wide enough to deserve it.
+
+  A GRID rather than a flex column, so the second column is one line of CSS in a container query
+  instead of a class React has to set. `container-type: inline-size` makes this element the query
+  container; it constrains the INLINE axis only, so the block-axis scrolling below is untouched.
+
+  THE THRESHOLD IS ON THE LIST, NOT THE PANEL, and that is what makes it honest: it asks how much
+  room the cards actually have, after the panel's padding, rather than trusting a number derived
+  from the panel width somewhere else.
+
+  636px of list = 660px of panel minus 12px padding either side. Two columns at that point are
+  ~313px each, 12% tighter than the ~356px a card gets today, and by the 760px stop they are ~363px
+  — wider than the single column is now. See src/lib/panelWidth.js for the arithmetic.
+*/
 .tray__list {
   flex: 1;
   min-height: 0; /* without this the flex child refuses to shrink and the panel scrolls instead */
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr;
+  align-content: start; /* or a short list stretches its rows down the panel */
   gap: 10px;
   padding: 12px;
+  container-type: inline-size;
+}
+
+@container (min-width: 636px) {
+  .tray__list {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Empty states and notices are sentences, not cards: they span whatever the column count is rather
+   than sitting in the left half of a two-column panel. */
+.tray__list > .placeholder {
+  grid-column: 1 / -1;
 }
 
 /* ── The active-filter bar ──────────────────────────────────────────────────────────── */

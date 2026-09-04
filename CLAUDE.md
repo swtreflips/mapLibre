@@ -676,6 +676,39 @@ of them; split two that are, and the marker appears twice. Neither throws, and n
 That badge was a hardcoded `MOCK_CONTAINER_COUNT = 7` for several iterations while every vessel in
 the data held exactly 1 — grouping is what made it honest.
 
+### The panel is resizable — [panelWidth.js](src/lib/panelWidth.js), [Sidebar.css](src/components/Sidebar.css)
+
+**380px to 760px, two columns of cards from 660px.** A fixed panel is right while the map is the
+subject and wrong the moment it is not: working a search result list means reading one card-wide
+column against a map nobody is looking at. Dragging the right edge trades map width for list width.
+
+**The stops are arithmetic, not taste.** A card gets ~356px today (380 minus the list's 12px padding
+either side). At the 760px stop two columns come out at **~363px each — wider than the single column
+is now**, so doubling is exactly the width at which a second column costs nothing. The 660px
+threshold puts them at ~313px, 12% tighter than today, so the second column arrives while there is
+still drag left rather than in the last few pixels.
+
+**Three decisions worth keeping:**
+
+- **The width is a CSS custom property**, and the two-column switch is a **container query on
+  `.tray__list`** — not a class React sets. The query asks how much room the cards actually have,
+  after padding, rather than trusting a number derived from the panel width somewhere else. There
+  is no second source of truth to fall out of step.
+- **The drag writes to the DOM, not to state.** `Sidebar` renders every visible container card;
+  setState on each `pointermove` would re-render that list 60×/second for a number only CSS reads.
+  The handler sets the property on the node through a ref; state and `localStorage` are written
+  once, on release.
+- **Both lists get it free.** The holder `Tray` and the search `Results` render into the same
+  `.tray__list`, which is the case the feature exists for.
+
+`clampWidth` turns anything non-finite into the minimum, because **a NaN width does not throw** — it
+reaches CSS as an invalid declaration the browser silently drops, leaving the panel at whatever the
+stylesheet last said. Storage is guarded exactly as [notes.js](src/lib/notes.js) guards notes, and
+for the same reasons. Both are covered by `npm run test:panel`.
+
+**The map needs no code.** MapLibre 5.24's `trackResize` defaults on and observes the container, so
+the canvas follows; the existing `map.on('resize')` already recomputes `minZoom` from the new width.
+
 ### The tray — [Sidebar.jsx](src/components/Sidebar.jsx), [ContainerCard.jsx](src/components/ContainerCard.jsx)
 
 - **Nothing selected** → the Overview counts below. Selecting a holder replaces them; the two
