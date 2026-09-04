@@ -8,6 +8,7 @@ import {
   computeProgress,
   positionAtProgress,
   positionOnItinerary,
+  standoffKmAt,
   computeBearing,
   containerColor,
 } from '../lib/vesselMath'
@@ -25,6 +26,10 @@ const INITIAL_CENTER = [0, 20]
 const INITIAL_ZOOM = 1.5
 // OpenMapTiles is z0-14 and overzooms cleanly above that; 17 is enough to see individual
 // buildings and yard entrances for drayage work without pushing the tiles past usefulness.
+//
+// `STANDOFF_NEAR_ZOOM` in vesselMath is this number, and the two must move together: it is the far
+// end of the vessel standoff's ramp because it is the far end of the map. Raise this and the
+// standoff stops shrinking while km-per-pixel keeps halving, so hulls drift back off their ports.
 const MAX_ZOOM = 17
 
 // The vessel's size curve, in one place because the count badge rides it too. If the hull and the
@@ -425,6 +430,11 @@ function buildFeatures(shipments, routesByKey, railByKey, map, portPoints, match
   const mapBearing = map.getBearing()
   const isMatch = (c) => !matchedIds || matchedIds.has(c.shipment)
   const { vessels, trains, ports: portHolders } = buildHolders(shipments, routesByKey, portPoints, railByKey)
+  // How far off its port a hull holds, at THIS zoom. Read once for the whole pass rather than per
+  // vessel: it is a function of zoom alone, and one value also means two ships held at the same
+  // port are held at the same distance, which is what lets spreadStackedVessels separate them
+  // cleanly. Recomputed on the `zoomend` rebuild, the same event the vessel de-cluster rides.
+  const standoff = standoffKmAt(map.getZoom())
   const shipFeatures = []
   const railFeatures = []
   const railPaths = []
@@ -439,7 +449,7 @@ function buildFeatures(shipments, routesByKey, railByKey, map, portPoints, match
     // interpolating within it — the same computeProgress / positionAtProgress underneath, applied
     // one leg at a time. holders.js sets the holder's etd/eta from the SAME activeLegAt, so the
     // tray's "ETA 4 Oct" and the hull's position can never describe different legs.
-    const at = positionOnItinerary(v.legs)
+    const at = positionOnItinerary(v.legs, new Date(), standoff)
     if (!at) continue
     const bearing = computeBearing(at.pos, at.next)
     const pos = at.pos

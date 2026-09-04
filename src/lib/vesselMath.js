@@ -282,29 +282,84 @@ function progressByTimeLeft(fallback, leg, today) {
  *       5        2.03      12 px       74 px
  *       7        0.51      49 px      296 px
  *
- * So 25 km only separated anything past about z7, which is not where this map is read. The cost is
- * the other end of that column: at z7+ a hull sits ~300 px offshore and reads as detached from the
- * port it belongs to. That is the price of a fixed distance, and it is the same trade MapView's
- * RAIL_START note already writes down — a geographic offset cannot track a fixed-pixel card at
- * every zoom, and the alternative is nudging in screen space against the cards, which is a
- * different design.
- *
- * A CLAMP, so it only binds where the problem is. Every ship in transit stays exactly where the
- * time model puts it; only the ones that would otherwise sit on a card are moved.
+ * So 25 km separated nothing below about z7. But the same column read downward is why a single
+ * distance cannot be right everywhere either — hence `standoffKmAt`.
  */
 const ANCHORAGE_KM = 150
 
 /**
+ * The zoom the standoff is CALIBRATED at, and the zoom it has decayed to by.
+ *
+ * ANCHORAGE_KM is the distance at STANDOFF_CAL_ZOOM and nowhere else. Below it the distance holds —
+ * zoomed out, the whole leg is a few hundred pixels and there is no room to give anything back.
+ * Above it the ship closes on its port.
+ *
+ * STANDOFF_NEAR_ZOOM IS MapView's `MAX_ZOOM`, and the two must move together. It is the far end of
+ * the ramp because it is the far end of the map: OpenMapTiles stops at z14 and overzooms to 17,
+ * which is where you can see a yard entrance. The clamp above it is unreachable today, and is there
+ * so that raising the ceiling degrades into "holds at 15 m" rather than into a divide-by-nothing —
+ * but note it degrades: past this zoom the km stops shrinking while km-per-pixel keeps halving, so
+ * the pixel gap starts growing again. Raise this constant with the ceiling, do not rely on the clamp.
+ */
+const STANDOFF_CAL_ZOOM = 5.7
+const STANDOFF_NEAR_ZOOM = 17
+const STANDOFF_NEAR_KM = 0.015
+
+/**
+ * How far off its port a hull stands at this zoom, in km.
+ *
+ * A FIXED DISTANCE IS RIGHT AT EXACTLY ONE ZOOM. 150 km reads as an anchorage at z5.7, and the
+ * table above says why it cannot hold: km-per-pixel halves with every zoom level, so the same
+ * 150 km that is 120 px at z5.7 is ~300 px at z7 and around 300,000 px at z17 — a ship not merely
+ * detached from its port but several screens off the side of it. The collision it dodges is at the
+ * BERTH, and by the time you are looking at a berth the ship should be next to it.
+ *
+ * GEOMETRIC, NOT LINEAR, between the two ends. The distance spans four orders of magnitude, so a
+ * straight line between 150 km and 15 m is a line that is essentially zero everywhere except the
+ * first zoom level. Interpolating the EXPONENT instead makes the ratio constant per zoom level,
+ * which is the same way km-per-pixel itself moves — so the pixel gap closes smoothly rather than
+ * collapsing at one end:
+ *
+ *     zoom      km        px (lat 34)
+ *      5.7     150         120          <- calibrated here; unchanged from a flat 150 km
+ *      8        23           91
+ *     10         4.5         71
+ *     12         0.88        56
+ *     14         0.17        44
+ *     17         0.015       30
+ *
+ * IT NEVER REACHES ZERO, which is the one hard constraint: at 0 the hull is back on the port card's
+ * own coordinate and takes its clicks again. 15 m at z17 is a hull's length off the berth — visibly
+ * beside it, never on it.
+ *
+ * ZOOM-DEPENDENT BUT NOT LATITUDE-DEPENDENT, deliberately. Working in km keeps this a pure function
+ * of zoom that the tests can pin, and keeps `positionOnItinerary` free of the projection. The px
+ * column above is therefore exact at lat 34 and drifts with the cosine — a Rotterdam hull stands
+ * off the same 150 km and rather more pixels. Pixel-exactness would mean latitude per leg END, and
+ * that is a knob this does not need to turn.
+ */
+export function standoffKmAt(zoom) {
+  if (!(zoom > STANDOFF_CAL_ZOOM)) return ANCHORAGE_KM // also catches undefined / NaN
+  if (zoom >= STANDOFF_NEAR_ZOOM) return STANDOFF_NEAR_KM
+  const t = (zoom - STANDOFF_CAL_ZOOM) / (STANDOFF_NEAR_ZOOM - STANDOFF_CAL_ZOOM)
+  return ANCHORAGE_KM * (STANDOFF_NEAR_KM / ANCHORAGE_KM) ** t
+}
+
+/**
  * The band of a leg a hull may be drawn in, as `[floor, cap]` fractions.
  *
- * A LEG TOO SHORT TO STAND OFF WITHIN COLLAPSES TO ITS MIDPOINT. Below `2 x ANCHORAGE_KM` the two
+ * A LEG TOO SHORT TO STAND OFF WITHIN COLLAPSES TO ITS MIDPOINT. Below `2 x standoff` the two
  * bounds cross and there is no band left, so the honest answer is the middle — still clear of both
  * cards, and no less true than either end: §5.1 already notes that a leg shorter than a day's
  * steaming has no third answer, and at that length the midpoint IS the standoff.
+ *
+ * Continuous across that switch, which matters now the standoff moves with zoom: at exactly
+ * `km === 2 x standoff` the general case gives `[0.5, 0.5]` too, so a leg cannot jump as you zoom
+ * past the threshold — it eases off the midpoint and starts tracking its dates.
  */
-function anchorageBand(km) {
-  if (km <= 2 * ANCHORAGE_KM) return [0.5, 0.5]
-  const f = ANCHORAGE_KM / km
+function anchorageBand(km, standoff) {
+  if (km <= 2 * standoff) return [0.5, 0.5]
+  const f = standoff / km
   return [f, 1 - f]
 }
 
@@ -314,16 +369,21 @@ function anchorageBand(km) {
  * Reuses computeProgress and positionAtProgress unchanged — one leg at a time is the same problem
  * the single-lane voyage always was, so there is no new geometry here.
  *
+ * @param {object[]} legs
+ * @param {Date} today
+ * @param {number} [standoffKm] how far off each port to hold the hull — `standoffKmAt(map zoom)`.
+ *   Defaults to the calibrated ANCHORAGE_KM so a caller with no map (the tests, and anything
+ *   reasoning about position rather than drawing it) gets the z5.7 answer rather than none.
  * @returns {{pos:number[], next:number[], index:number, remaining:number[][][]}|null}
  *   `remaining` is one coordinate array PER LEG: the current leg from the ship onward, then each
  *   whole leg after it. Kept as separate lines rather than concatenated so a multi-drop draws as
  *   the several routes it is.
  */
-export function positionOnItinerary(legs, today = new Date()) {
+export function positionOnItinerary(legs, today = new Date(), standoffKm = ANCHORAGE_KM) {
   const active = activeLegAt(legs, today)
   if (!active) return null
   const coords = active.leg.coords
-  const [floor, cap] = anchorageBand(polylineKm(coords))
+  const [floor, cap] = anchorageBand(polylineKm(coords), standoffKm)
   const progress = Math.min(
     Math.max(progressByTimeLeft(active.progress, active.leg, today), floor),
     cap,

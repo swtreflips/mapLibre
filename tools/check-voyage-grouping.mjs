@@ -39,7 +39,7 @@ const patched = readFileSync('src/lib/holders.js', 'utf8').replace(
 const { buildHolders, vesselSplits } = await import(
   'data:text/javascript;base64,' + Buffer.from(patched).toString('base64')
 )
-const { normalizeKey, positionOnItinerary, haversine } = await import(VESSEL_MATH)
+const { normalizeKey, positionOnItinerary, standoffKmAt, haversine } = await import(VESSEL_MATH)
 
 let failed = 0
 const check = (name, got, want) => {
@@ -755,6 +755,57 @@ console.log('\ndistance tracks days, not schedule padding\n')
     Math.round(haversine(short.pos, tiny[0])),
     Math.round(haversine(short.pos, tiny[1])),
   ) > 100, true)
+}
+
+// ── THE STANDOFF CLOSES AS YOU ZOOM IN ────────────────────────────────────────────────
+//
+// A fixed distance is right at exactly one zoom. 150 km reads as an anchorage at z5.7 and as
+// several screens of open water at z17, because km-per-pixel halves with every zoom level — so the
+// hull has to close on its port as the map starts describing the berth it is waiting for.
+//
+// Pinned here rather than eyeballed because it is a curve, and the two things that make a curve
+// wrong are silent: reaching zero at the top (the hull is back under the card, which is the bug the
+// standoff exists to fix) and not being monotonic in between (a ship that swims backwards as you
+// zoom).
+console.log('\nthe standoff closes as you zoom in\n')
+{
+  const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); d.setHours(0,0,0,0); return d }
+
+  check('calibrated at z5.7', Math.round(standoffKmAt(5.7)), 150)
+  // Below the calibration zoom it HOLDS. Zoomed out the whole leg is a few hundred pixels and there
+  // is nothing to give back; this is also what keeps every existing assertion above true.
+  check('...and holds below it', standoffKmAt(3), standoffKmAt(5.7))
+  check('...including at the world view', standoffKmAt(1.5), standoffKmAt(5.7))
+
+  // NEVER ZERO, the one hard constraint: at zero the hull is on the port card's own coordinate and
+  // takes its clicks back.
+  check('never reaches zero, even past the top stop', standoffKmAt(22) > 0, true)
+  check('...and is clamped there rather than running away', standoffKmAt(22), standoffKmAt(17))
+
+  // Monotonic, sampled across the whole band.
+  let monotonic = true
+  for (let z = 5.7; z <= 17; z += 0.1) if (standoffKmAt(z + 0.1) > standoffKmAt(z)) monotonic = false
+  check('shrinks monotonically from z5.7 to z17', monotonic, true)
+
+  // GEOMETRIC, NOT LINEAR. A straight line between 150 km and 15 m is essentially zero everywhere
+  // past the first zoom level; interpolating the exponent keeps the ratio constant per level, which
+  // is how km-per-pixel itself moves. Asserted as the PIXEL gap staying the same order of magnitude
+  // across eleven zoom levels — a linear ramp would collapse it to nothing by z7.
+  const kmPerPx = (z) => 64.9 / 2 ** z // lat 34, the calibration latitude
+  const px = (z) => standoffKmAt(z) / kmPerPx(z)
+  check('the pixel gap closes rather than collapsing', px(17) > px(5.7) / 6, true,
+    `${Math.round(px(5.7))} px at z5.7 vs ${Math.round(px(17))} px at z17`)
+  check('...and it does close', px(17) < px(5.7), true)
+
+  // The drawn consequence, which is what all of the above is for: the same overdue ship on the same
+  // leg is nearer its port at z17 than at z5.7, and on the port at neither.
+  const leg = [{ from: 'A', to: 'Z', coords: [[0, 0], [40, 0]], start: day(-30), end: day(-3) }]
+  const far = positionOnItinerary(leg, day(0), standoffKmAt(5.7))
+  const near = positionOnItinerary(leg, day(0), standoffKmAt(17))
+  const off = (p) => haversine(p.pos, [40, 0])
+  check('the same ship is nearer its port zoomed in', off(near) < off(far), true,
+    `${off(far).toFixed(0)} km at z5.7 vs ${off(near).toFixed(3)} km at z17`)
+  check('...but still not on it', off(near) > 0, true)
 }
 
 // ── vesselSplits: the diagnostic that replaced etaDisagreements ─────────────────────────

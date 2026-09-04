@@ -315,17 +315,54 @@ Los Angeles' latitude km-per-pixel is `64.9 / 2^zoom`, against a card of ~27 px 
 | 5 | 2.03 | 12 px | 74 px |
 | 7 | 0.51 | 49 px | **296 px** |
 
-So 25 km separated nothing below about z7, which is not where this map is read. **The cost is the
-bottom row**: past z7 the hull sits ~300 px offshore and reads as detached from its port. That is
-the price of a fixed distance and it is the same trade the `RAIL_START` note in
-[MapView.jsx](src/components/MapView.jsx) already writes down — a geographic offset cannot track a
-fixed-pixel card at every zoom. The alternative is nudging in screen space against the cards, which
-was considered and rejected: hull-to-hull collisions created by the standoff are already handled by
-`spreadStackedVessels` (§5.3), and that is the only declutter this map does.
+So 25 km separated nothing below about z7. **But read that last column downward and a single
+distance is wrong at the other end too** — 150 km is ~300 px at z7 and ~300,000 px at z17, a ship
+several screens off the side of the port it is waiting for. The collision being dodged is at the
+*berth*, and by the time the map is drawing a berth the ship should be beside it.
 
-**A leg under `2 × ANCHORAGE_KM` pins to its midpoint** — below 300 km the floor and the cap cross
-and there is no band left. Still clear of both cards, and no less true than either end, since a leg
-that short has no honest third answer anyway (see the binary note above).
+**So `ANCHORAGE_KM` is the distance at one zoom, and `standoffKmAt(zoom)` is the curve.** It holds
+flat at 150 km up to `STANDOFF_CAL_ZOOM` (5.7) — zoomed out, a whole leg is a few hundred pixels and
+there is nothing to give back — then decays to 15 m by z17:
+
+| zoom | km | px (lat 34) |
+|---|---|---|
+| ≤ 5.7 | 150 | 120 |
+| 8 | 23 | 91 |
+| 10 | 4.5 | 71 |
+| 12 | 0.88 | 56 |
+| 14 | 0.17 | 44 |
+| 17 | 0.015 | 30 |
+
+**Geometric, not linear**, between the two ends. The distance spans four orders of magnitude, so a
+straight line between 150 km and 15 m is a line that is essentially zero everywhere past the first
+zoom level. Interpolating the *exponent* keeps the ratio constant per zoom level — the same way
+km-per-pixel itself moves — so the pixel gap closes smoothly instead of collapsing.
+
+**It never reaches zero**, which is the one hard constraint: at zero the hull is back on the port
+card's own coordinate and takes its clicks again. 15 m at z17 is a hull's length off the berth.
+
+**`STANDOFF_NEAR_ZOOM` is `MAX_ZOOM`** and the two must move together — the ramp ends where the map
+does. Above it the km clamps while km-per-pixel keeps halving, so hulls would drift back offshore;
+raise the constant with the ceiling rather than relying on the clamp.
+
+**Zoom-dependent but not latitude-dependent**, deliberately: working in km keeps `standoffKmAt` a
+pure function of zoom that the tests can pin, and keeps `positionOnItinerary` free of the
+projection. The px column is therefore exact at lat 34 and drifts with the cosine.
+
+The alternative — nudging in screen space against the cards — was built in `9d3e14f` and reverted in
+`27d61e5`. Moving along the polyline instead keeps the hull on its own routed sea lane by
+construction, so it cannot be pushed onto land, and leaves `relaxOverlaps` doing the one job it
+does well: separating hulls from *each other*, including the ones this standoff stacks on a point
+(§5.3).
+
+**A leg under `2 × standoff` pins to its midpoint** — the floor and the cap have crossed and there
+is no band left. Still clear of both cards, and no less true than either end, since a leg that short
+has no honest third answer anyway (see the binary note above). The switch is continuous: at exactly
+`2 × standoff` the general case also gives the midpoint, so a short leg eases off it as you zoom in
+rather than jumping.
+
+Recomputed on the `zoomend` rebuild, the same event the vessel de-cluster rides (§6), so the hull
+closes on its port at the end of a zoom gesture rather than during it.
 
 #### A call is not made until something says it was
 
