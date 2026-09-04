@@ -5,9 +5,9 @@ import './MapView.css'
 import { useRoutes } from '../hooks/useRoutes'
 import LoadingScreen from './LoadingScreen'
 import {
+  computeProgress,
   positionAtProgress,
   positionOnItinerary,
-  railRunIn,
   computeBearing,
   containerColor,
 } from '../lib/vesselMath'
@@ -468,13 +468,12 @@ function buildFeatures(shipments, routesByKey, railByKey, map, portPoints, match
 
   spreadStackedVessels(map, shipFeatures, byId)
 
-  // THE INLAND LEG. The same problem as the vessel — a thing travelling a polyline between two
-  // dates — and it reuses the same helpers rather than reimplementing them. What differs is where
-  // the dead time in the window sits: an ocean booking waits at a hub mid-route, a rail box waits at
-  // the PORT to be unloaded and mounted. So this holds at the discharge port and then rolls, where a
-  // sea leg holds at its midpoint. See railRunIn.
+  // THE INLAND LEG. Same maths as the vessel — a thing travelling a polyline between two dates —
+  // so it reuses computeProgress and positionAtProgress rather than reimplementing them. What
+  // differs is only which lane and which pair of dates: the rail lane, and actual_portdate ->
+  // expected_lastcy_date.
   for (const t of trains) {
-    const progress = railProgress(railRunIn(t.coords, t.etd, t.eta))
+    const progress = railProgress(computeProgress(t.etd, t.eta))
     const { pos, cut } = positionAtProgress(t.coords, progress)
     if (!pos) continue
     const next = t.coords[Math.min(cut + 1, t.coords.length - 1)]

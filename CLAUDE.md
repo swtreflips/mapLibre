@@ -288,38 +288,6 @@ Angeles → Oakland (777 km, 8 days to run): it is simply still at Los Angeles, 
 right — that is date arithmetic. Only the icon moved. It remains the fallback for a leg with no end
 date, where there is no remaining time to measure. Guarded by `npm run test:grouping`.
 
-#### The inland leg holds at the PORT, not at the midpoint
-
-Rail takes the same idea and puts the slack somewhere else, because on rail the slack is somewhere
-else. **`railRunIn` holds the box on its discharge port until the days left only just cover the run,
-then rolls it at 700 km/day onto its CY date.** No outward half at all.
-
-An ocean window's dead time is transshipment and berth waiting — it happens *mid-route*, which is why
-a sea leg holds at its midpoint. A rail window's dead time is **discharge, customs hold, and waiting
-to be mounted on a railcar**, and every hour of that is spent stationary at the port. Same principle,
-opposite answer. Measured, the three live movements:
-
-```
-INBSHIP4151   Oakland, CA - Salt Lake City, UT     1,306 km   10d   131 km/day
-INBSHIP4131   New York, NY - Cincinnati, OH        1,281 km    9d   142 km/day
-INBSHIP4119   Long Beach, CA - Cincinnati, OH      4,023 km   18d   224 km/day
-```
-
-US intermodal runs 640–800 km/day. These windows are three to five times slower, so they are not
-transits — they are a transit with days of port dwell in front of it. Interpolating across the whole
-window drew INBSHIP4151 **70% of the way to Salt Lake City while the box was still on the dock at
-Oakland**. It now reads 0% and stays there until 2 September, then covers the track in two days.
-
-**Applying the sea rule literally would have been worse than either.** Rail tracks are short against
-their windows — half of 1,306 km is under a day of running — so the outward half would saturate
-almost immediately and park the container in mid-Nevada for eight days. Holding at the port is not a
-simplification of the halves model; it is what the halves model degenerates to when the leg is short
-and the dwell is all at one end.
-
-`RAIL_KM_PER_DAY = 700`, and the speed is `max(700, track ÷ window)` for the same reason as at sea: a
-schedule tighter than the service speed is sailed at the schedule, so the box still lands on its
-date rather than being held past it. Guarded by `npm run test:grouping`.
-
 #### A call is not made until something says it was
 
 **A leg is only left behind once the call that ENDS it reports an actual date that has arrived.**

@@ -39,7 +39,7 @@ const patched = readFileSync('src/lib/holders.js', 'utf8').replace(
 const { buildHolders, vesselSplits } = await import(
   'data:text/javascript;base64,' + Buffer.from(patched).toString('base64')
 )
-const { normalizeKey, positionOnItinerary, haversine, railRunIn } = await import(VESSEL_MATH)
+const { normalizeKey, positionOnItinerary, haversine } = await import(VESSEL_MATH)
 
 let failed = 0
 const check = (name, got, want) => {
@@ -724,52 +724,6 @@ console.log('\ndistance tracks days, not schedule padding\n')
   // Overdue: the ETA passed with no arrival reported. At the port is the honest place for it.
   const late = positionOnItinerary([{ from: 'A', to: 'Z', coords: [[0, 0], [40, 0]], start: day(-30), end: day(-3) }])
   check('past its ETA -> at the port', JSON.stringify(late.pos), JSON.stringify([40, 0]))
-}
-
-// ── RAIL HOLDS AT THE PORT, THEN ROLLS ─────────────────────────────────────────
-//
-// The one place the inland leg deliberately differs from a sea leg. Both windows are mostly dead
-// time; what differs is WHERE the box spends it. An ocean booking's slack is transshipment, so a sea
-// leg holds at its MIDPOINT. A rail box's slack is being unloaded and mounted, which happens at the
-// PORT before it moves at all.
-//
-// Measured, `actual_portdate -> expected_lastcy_date` implies 131, 142 and 224 km/day on the three
-// live movements — three to five times slower than any train runs, because that window is not a rail
-// transit. Interpolating across it drew a box 70% of the way to Salt Lake City while it was still
-// on the dock at Oakland.
-console.log('\nthe inland leg holds at the port\n')
-{
-  const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); d.setHours(0,0,0,0); return d }
-  const track = [[0, 0], [20, 0]]          // ~2,226 km, about 3.2 days at 700 km/day
-  const long  = [[0, 0], [40, 0]]          // ~4,452 km
-  const kmOf = (c) => { let t = 0; for (let i = 0; i < c.length - 1; i += 1) t += haversine(c[i], c[i + 1]); return t }
-  const toGo = (c, p) => kmOf(c) * (1 - p)
-
-  check('more days left than the run needs -> still at the port',
-    railRunIn(track, day(-6), day(5)), 0)
-  check('...and the day before it must leave, still at the port',
-    railRunIn(track, day(-6), day(4)), 0)
-
-  const rolling = railRunIn(track, day(-6), day(3))
-  check('once the days only just cover the run, it rolls', rolling > 0, true)
-  check(`...at about the service speed (implied ${Math.round(toGo(track, rolling) / 3)} km/day)`,
-    Math.abs(toGo(track, rolling) / 3 - 700) < 25, true)
-
-  check('past its CY date -> at the yard', railRunIn(track, day(-9), day(-1)), 1)
-
-  // The ordering property, same as the sea legs: two boxes due on the same day are the same
-  // DISTANCE from their yards, whatever the length of track behind them.
-  const a = toGo(track, railRunIn(track, day(-6), day(2)))
-  const b = toGo(long, railRunIn(long, day(-6), day(2)))
-  check(`two boxes due the same day are the same distance out (${Math.round(a)} vs ${Math.round(b)} km)`,
-    Math.round(a) === Math.round(b), true)
-
-  // A schedule tighter than 700 km/day still lands on its date rather than being held past it.
-  const tight = railRunIn(long, day(-1), day(2))
-  check('a schedule tighter than the service speed still moves', tight > 0, true)
-
-  check('no end date -> nothing to measure', railRunIn(track, day(-6), null), 0)
-  check('a degenerate track does not throw', railRunIn([[0, 0]], day(-6), day(2)), 0)
 }
 
 // ── vesselSplits: the diagnostic that replaced etaDisagreements ─────────────────────────

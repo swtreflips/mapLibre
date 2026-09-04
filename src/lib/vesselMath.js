@@ -250,54 +250,6 @@ function progressByTimeLeft(fallback, leg, today) {
   return Math.min(1, Math.max(0, 1 - fromEnd / km))
 }
 
-/**
- * Rail service speed, km/day. ~700 is US intermodal at roughly 29 km/h including yard time.
- *
- * MEASURED AGAINST PHYSICS, NOT AGAINST THE FEED, for the same reason the ocean constant is. The
- * three live rail movements imply 131, 142 and 224 km/day — three to five times slower than any
- * train runs, because `actual_portdate -> expected_lastcy_date` is not a rail transit. It is
- * unloading, customs availability, drayage to the ramp, and waiting for a train, with a couple of
- * days of actual rail somewhere inside it.
- */
-export const RAIL_KM_PER_DAY = 700
-
-/**
- * How far along its track a container is drawn: HOLDING AT THE DISCHARGE PORT until the days
- * remaining are only just enough for the run, then covering the track at rail speed.
- *
- * THE SLACK IS AT THE START HERE, NOT IN THE MIDDLE, and that is the one place this deliberately
- * differs from the ocean model. Both windows are mostly dead time; what differs is WHERE the box
- * spends it. An ocean booking's slack is transshipment — it sits at a hub, mid-route, which is why
- * the sea legs hold at their midpoint. A rail box's slack is being unloaded and mounted, which
- * happens at the port before it moves at all.
- *
- * Applying the halves rule here would have been consistent and wrong: rail tracks are short against
- * their windows (Oakland -> Salt Lake City is 1,306 km inside 10 days, a two-day run), so the box
- * would reach the midpoint in under a day and park in the middle of Nevada for eight. Nothing is
- * there. The port is where it actually waits.
- *
- * The arithmetic is the ocean model's INBOUND half, used alone: distance from the yard is
- * `daysLeft x speed`, clamped to the track. Clamping is not an edge case, it is the hold — a box
- * with more days left than the run needs is still at the port, which is exactly what the clamp says.
- *
- * The speed is at least what the schedule demands, so a tight booking still lands on its date rather
- * than being held past it by a constant that does not fit.
- */
-export function railRunIn(coords, start, end, today = new Date()) {
-  if (!end || !coords || coords.length < 2) return 0
-
-  const km = polylineKm(coords)
-  if (!km) return 0
-
-  const daysLeft = Math.round((midnight(end) - midnight(today)) / DAY)
-  // Past its CY date with no arrival reported. At the yard is the honest place for it.
-  if (daysLeft <= 0) return 1
-
-  const daysElapsed = start ? Math.max(0, Math.round((midnight(today) - midnight(start)) / DAY)) : 0
-  const speed = Math.max(RAIL_KM_PER_DAY, km / (daysElapsed + daysLeft))
-
-  return Math.min(1, Math.max(0, 1 - Math.min(daysLeft * speed, km) / km))
-}
 
 /**
  * Where the ship is, which way it points, and the track it has left.
