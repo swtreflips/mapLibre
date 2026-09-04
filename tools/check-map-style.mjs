@@ -43,12 +43,11 @@ const SPEC = {
   'text-color': COLOR, 'text-halo-color': COLOR, 'text-halo-width': NUMBER, 'text-halo-blur': NUMBER,
 }
 
-// A stand-in palette: only the shape matters, and every value must be a real colour or the colour
-// properties fail for the wrong reason.
-const palette = {
-  dotFill: '#ffffff', dotFaint: '#80868b', dotIntl: '#5f6368', dotUs: 'rgb(173 85 42)',
-  labelFaint: '#80868b', labelIntl: '#5f6368', labelUs: '#3c4043', labelHalo: '#ffffff',
-}
+// Colours come from the REAL palette, not stand-ins: the contrast checks at the bottom are
+// meaningless against invented values, and a token edited in basemapStyle.js has to reach this
+// test. `skinRgb` falls back to its literal when there is no DOM, which is why this works in node.
+const { mapPalette } = await import('../src/map/basemapStyle.js')
+const palette = mapPalette()
 const FONT_REGULAR = ['Noto Sans Regular']
 const FONT_BOLD = ['Noto Sans Bold']
 
@@ -120,6 +119,37 @@ console.log('\nevery tier is named in the loud-fallback expressions\n')
   check('text-size names ts_port', mentions(layout['text-size']))
   check('text-color names ts_port', mentions(paint['text-color']))
   check('circle-stroke-color names ts_port', mentions(placeDotPaint(palette)['circle-stroke-color']))
+}
+
+// ── The label tiers must stay ordered AND stay legible ───────────────────────────────
+//
+// Two things can go wrong independently and neither surfaces as an error. Reorder the greys and the
+// hierarchy inverts silently. Lighten the faintest one and the SMALLEST text on the map (9.5px)
+// stops being readable — the first attempt at this tier used Google's tertiary #80868b, which
+// measures 3.21 against the land and 3.68 against its halo, both under the 4.5 WCAG AA wants.
+const luminance = (hex) => {
+  const ch = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+  const [r, g, b] = ch.map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+const contrast = (a, b) => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+console.log('\nlabel tiers: ordered and legible\n')
+{
+  // Measured against the HALO, because that is what the glyphs actually sit on.
+  const HALO = '#ffffff'
+  const us = contrast(palette.labelUs, HALO)
+  const intl = contrast(palette.labelIntl, HALO)
+  const faint = contrast(palette.labelFaint, HALO)
+  check(
+    `hierarchy holds: us ${us.toFixed(2)} > intl ${intl.toFixed(2)} > faint ${faint.toFixed(2)}`,
+    us > intl && intl > faint,
+  )
+  check(`faintest tier clears AA on its halo (${faint.toFixed(2)} >= 4.5)`, faint >= 4.5,
+    `${palette.labelFaint} is too light for 9.5px text`)
 }
 
 console.log(failed === 0 ? '\nAll style checks passed.' : `\n${failed} check(s) FAILED.`)

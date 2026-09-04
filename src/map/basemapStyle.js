@@ -64,7 +64,14 @@ const GOOGLEISH = {
   labelSecondary: '#5f6368', // Google's secondary label grey
   // A third step down, for the transshipment tier (src/data/places.js). Places a box only passes
   // through: present for geographic awareness, and never competing with a port the work is about.
-  labelTertiary: '#80868b', // Google's tertiary label grey
+  //
+  // NOT Google's tertiary grey (#80868b), which was the first try and measured 3.21 against the
+  // land and 3.68 against the white halo — under the 4.5 WCAG AA needs, on the SMALLEST text on the
+  // map (9.5px). It read as unfinished rather than subordinate. This is 4.05 / 4.65, so it clears
+  // AA against the halo the text actually sits on while staying a visible step below labelSecondary
+  // at 5.27. The hierarchy is carried by size and sort key as well, so the colour does not have to
+  // do all of it — and going lighter to widen the gap costs legibility the tier cannot spare.
+  labelTertiary: '#70757a',
   // The vessel hull's outline, from assets/vessel.svg. Lives here as well so the count badge's
   // ring and numeral share ONE source of truth with the icon they sit on — if the ship's outline
   // is ever recoloured, the badge follows instead of quietly drifting out of family.
