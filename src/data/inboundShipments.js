@@ -305,9 +305,13 @@ const inboundShipments = [
   // The dates put it MID-LOAD on purpose, which is the only state where every part of the
   // behaviour is visible at once:
   //
-  //   3972  Pipavav      ETD 3 days ago    -> enroute, aboard, badge 1
+  //   3972  Pipavav      ETD TODAY         -> enroute, aboard, badge 1
   //   3971  Nhava Sheva  ETD in 4 days     -> future, waiting on an ORIGIN card at Nhava Sheva
-  //   ship                                 -> on leg 1, Pipavav -> Nhava Sheva (460.4 km)
+  //   ship                                 -> leg 1 at 0% — sitting ON Pipavav, about to sail
+  //
+  // ETD TODAY IS THE BOUNDARY CASE. `shipmentState` tests `start > todayMid`, so a box sails ON its
+  // ETD rather than the day after: it is aboard, and the Pipavav origin card empties the same day.
+  // computeProgress is 0, so the hull is drawn exactly on the port point it is leaving.
   //
   // Once 3971's ETD passes the badge becomes 2 and the Nhava Sheva card empties, with no special
   // case anywhere: loading is just a container ceasing to be `future`.
@@ -356,7 +360,7 @@ const inboundShipments = [
     port_of_discharge: 'Los Angeles, CA',
     Lastcy: 'Los Angeles, CA',
     route: 'Pipavav, India - Los Angeles, CA',
-    actual_shipping: daysAgo(3), // sailed: the ship has left Pipavav
+    actual_shipping: daysAgo(0), // sailed TODAY: aboard, but the ship is still on the berth
     expected_portdate: daysAhead(34),
     actual_portdate: '',
     appointment_date: '',
