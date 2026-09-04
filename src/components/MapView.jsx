@@ -15,6 +15,7 @@ import { buildBasemapStyle, mapPalette, FONT_REGULAR, FONT_BOLD } from '../map/b
 import { placesFC, buildPlacesFC, portPointsByKey, FIRST_LABEL_ZOOM } from '../data/places'
 import { portCardSvg, portCardLabel, portBubbleSvg, bubbleRadius, DIM_OPACITY } from '../map/portCard'
 import { relaxOverlaps } from '../map/declutter'
+import { placeDotPaint, placeLabelLayout, placeLabelPaint } from '../map/placeStyle'
 import { buildHolders, vesselSplits } from '../lib/holders'
 import { useUsPorts } from '../hooks/useUsPorts'
 import { useLoadingPorts } from '../hooks/useLoadingPorts'
@@ -616,26 +617,9 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
         type: 'circle',
         source: 'places',
         filter: PLACE_ZOOM_FILTER,
-        paint: {
-          // White fill + coloured stroke reads as a hollow ring at these radii.
-          'circle-color': palette.dotFill,
-          // Transshipment ports get a smaller ring on a flatter curve. They exist for geographic
-          // awareness, so they must read as background at every zoom they appear at.
-          'circle-radius': [
-            'match',
-            ['get', 'kind'],
-            'ts_port', ['interpolate', ['linear'], ['zoom'], 6, 2, 10, 2.8],
-            ['interpolate', ['linear'], ['zoom'], 2, 2.5, 6, 4],
-          ],
-          'circle-stroke-width': ['match', ['get', 'kind'], 'ts_port', 1, 1.4],
-          'circle-stroke-color': [
-            'match',
-            ['get', 'kind'],
-            'ts_port', palette.dotFaint,
-            'intl_port', palette.dotIntl,
-            palette.dotUs,
-          ],
-        },
+        // src/map/placeStyle.js — extracted so `npm run test:style` can validate the expressions.
+        // A malformed one does not throw; MapLibre drops the whole layer and the map goes blank.
+        paint: placeDotPaint(palette),
       })
 
       map.addSource('vessels', { type: 'geojson', data: EMPTY_FC })
@@ -817,47 +801,8 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
         type: 'symbol',
         source: 'places',
         filter: PLACE_ZOOM_FILTER,
-        layout: {
-          'text-field': ['get', 'name'],
-          // EVERY match here needs the third kind spelled out. The fallback arm is the US styling
-          // — bold, dark — so a kind that is not named falls through to the LOUDEST treatment,
-          // which is the opposite of what a background tier wants.
-          'text-font': [
-            'match',
-            ['get', 'kind'],
-            'ts_port', ['literal', FONT_REGULAR],
-            'intl_port', ['literal', FONT_REGULAR],
-            ['literal', FONT_BOLD],
-          ],
-          'text-size': [
-            'match',
-            ['get', 'kind'],
-            'ts_port', ['interpolate', ['linear'], ['zoom'], 6, 9.5, 10, 11],
-            ['interpolate', ['linear'], ['zoom'], 3, 11, 7, 13],
-          ],
-          'text-anchor': 'left',
-          'text-offset': [0.7, 0],
-          'text-letter-spacing': 0.01,
-          'text-padding': 4,
-          // Let a crowded coast drop names instead of stacking them. Sorting by the same
-          // minzoom that gates the place means importance decides who keeps their name: a
-          // major port beats the rail yard next to it, which stays a bare dot until you zoom.
-          'text-allow-overlap': false,
-          'text-optional': true,
-          'symbol-sort-key': ['get', 'minzoom'],
-        },
-        paint: {
-          'text-color': [
-            'match',
-            ['get', 'kind'],
-            'ts_port', palette.labelFaint,
-            'intl_port', palette.labelIntl,
-            palette.labelUs,
-          ],
-          'text-halo-color': palette.labelHalo,
-          'text-halo-width': 1.4,
-          'text-halo-blur': 0.2,
-        },
+        layout: placeLabelLayout(FONT_REGULAR, FONT_BOLD),
+        paint: placeLabelPaint(palette),
       })
 
       const clearSelection = () => {

@@ -1210,6 +1210,15 @@ Note the label layer's `match` expressions **fall through to the US styling** (b
 kind that forgets to name itself in all three — font, size, colour — gets the loudest treatment on
 the map, which is the opposite of what a background tier wants.
 
+**The expressions live in [src/map/placeStyle.js](src/map/placeStyle.js), not inline, and
+`npm run test:style` validates them against the real style spec.** A malformed expression is the
+quietest failure in this codebase: MapLibre rejects the LAYER and draws nothing, so lint passes, the
+build passes, every other test passes, and the map is blank. Adding this tier nested a zoom
+`interpolate` inside a `match` — forbidden, *"Only one zoom-based step or interpolate subexpression
+may be used"* — and emptied the map of all 118 places, including the ones that had worked for
+months. **A zoom `interpolate` must be the OUTERMOST expression**; to vary by zoom AND by kind,
+interpolate on zoom and put the `match` in each STOP VALUE.
+
 **Transshipment ports have no route geometry.** `populate_port_matrix.py` does not cover them, so a
 sailing calling at one truncates its itinerary. Fine while they are only labels; if a vessel is ever
 drawn calling there, they need adding to that matrix (`--port`).
