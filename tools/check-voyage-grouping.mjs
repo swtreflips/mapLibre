@@ -35,7 +35,7 @@ const patched = readFileSync('src/lib/holders.js', 'utf8').replace(
 const { buildHolders, vesselSplits } = await import(
   'data:text/javascript;base64,' + Buffer.from(patched).toString('base64')
 )
-const { normalizeKey, positionOnItinerary } = await import(VESSEL_MATH)
+const { normalizeKey, positionOnItinerary, haversine } = await import(VESSEL_MATH)
 
 let failed = 0
 const check = (name, got, want) => {
@@ -425,10 +425,33 @@ console.log('\nposition along the itinerary\n')
   const between = positionOnItinerary(legs, new Date(2099, 9, 8)) // 8 Oct, NY 4 Oct -> Norfolk 13 Oct
   check('between the calls, on leg 2', between.index, 1)
   check('...with only one line left', between.remaining.length, 1)
-  // Roughly 4/9 of the way from New York to Norfolk. The exact figure is computeProgress's job and
-  // is tested elsewhere; what matters here is that it is on the RIGHT line, moving south-west.
-  check('...south of New York', between.pos[1] < 40, true)
-  check('...and west of it', between.pos[0] < -74, true)
+
+  // A SHORT LEG IS BINARY, and that is the model rather than a gap in it. New York -> Norfolk is
+  // ~400 km here (568.9 in sea_routes) — under one day's steaming at 620 km/day. With five days
+  // still to run, "days left x service speed" is further than the whole leg, so the ship has not
+  // left New York yet. It is at one end or the other, which is all a map with one-day resolution
+  // can honestly say about a twenty-hour hop.
+  check('...still at New York, the leg being shorter than a day of steaming',
+    JSON.stringify(between.pos), JSON.stringify([-74, 40]))
+
+  // On a leg long enough to sail, it IS partway — and exactly `days x speed` from the far end.
+  const longHop = [
+    { from: 'Cartagena, Colombia', to: 'New York, NY', coords: [[-75, 10], [-74, 40]],
+      start: new Date(2099, 5, 12), end: new Date(2099, 9, 4) },
+    { from: 'New York, NY', to: 'Far, XX', coords: [[-74, 40], [-14, 40]],
+      start: new Date(2099, 9, 4), end: new Date(2099, 9, 13) },
+  ]
+  const sailing = positionOnItinerary(longHop, new Date(2099, 9, 8))
+  check('a long second leg puts the ship in transit on it', sailing.index, 1)
+  check('...east of New York', sailing.pos[0] > -74, true)
+  {
+    let km = 0
+    const c = sailing.remaining[0]
+    for (let i = 0; i < c.length - 1; i += 1) km += haversine(c[i], c[i + 1])
+    // 5 days to run. The constant lives in vesselMath; this checks the relationship holds.
+    check('...and exactly five days of steaming from the call', Math.abs(km / 5 - 620) < 25, true,
+      `implied ${Math.round(km / 5)} km/day`)
+  }
 
   // Past every call, which is reachable while a box is aboard with no arrival reported. Held at
   // the last port rather than extrapolated off the end of the line.
@@ -489,6 +512,65 @@ console.log('\norigin cards — not sailed yet\n')
   const unanchored = buildHolders([notSailed({ shipment: 'A' })], routes, new Map(), rails).ports
   check('no port row -> falls back to the lane start',
     JSON.stringify(unanchored[0].coordinates), JSON.stringify([100, 13]))
+}
+
+// ── DISTANCE TO PORT TRACKS DAYS TO ARRIVAL ────────────────────────────────────
+//
+// The map is read by comparing markers: a ship nearer the coast is arriving sooner. That was not
+// true. Position used to be the fraction of the ETD -> ETA window elapsed, applied to the fraction
+// of the lane covered — so each ship moved at its own implied average, and those averages differ by
+// 3x because the window also holds loading, transshipment dwell and berth waiting. Measured on the
+// real feed:
+//
+//     ONE FREEDOM      9 days out   3,847 km to go
+//     WAN HAI 507     10 days out   3,671 km to go   <- arrives LATER, drawn CLOSER
+//
+//     BAY BRIDGE        4 days out   1,382 km to go
+//     SEASPAN BRISBANE  4 days out   2,010 km to go   <- same morning, 628 km apart
+//
+// Neither throws and neither looks wrong on its own; you only see it by comparing two markers and
+// knowing their ETAs. So it is pinned here.
+console.log('\ndistance tracks days, not schedule padding\n')
+{
+  const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); d.setHours(0,0,0,0); return d }
+  // Two legs to the same meridian, one twice as long as the other. Degrees of longitude at the
+  // equator are equal-length, so the km ratio is exactly the coordinate ratio.
+  const shortLeg = [{ from: 'A', to: 'Z', coords: [[0, 0], [40, 0]], start: day(-30), end: day(6) }]
+  const longLeg  = [{ from: 'B', to: 'Z', coords: [[0, 0], [80, 0]], start: day(-60), end: day(6) }]
+
+  const kmLeft = (legs) => {
+    const at = positionOnItinerary(legs)
+    return at.remaining.reduce((n, c) => {
+      let t = 0
+      for (let i = 0; i < c.length - 1; i += 1) t += haversine(c[i], c[i + 1])
+      return n + t
+    }, 0)
+  }
+
+  const a = kmLeft(shortLeg)
+  const b = kmLeft(longLeg)
+  check('two ships arriving the same day are the same distance out', Math.round(a) === Math.round(b), true,
+    `${Math.round(a)} vs ${Math.round(b)} km`)
+  // 6 days x 620 km/day. The constant is in vesselMath; this asserts the RELATIONSHIP, and that the
+  // figure is a plausible service speed rather than whatever the schedule implied.
+  check('...and that distance is days x a service speed', Math.abs(a / 6 - 620) < 25, true,
+    `implied ${Math.round(a / 6)} km/day`)
+
+  // The ordering property the map is actually read for.
+  const sooner = kmLeft([{ ...shortLeg[0], end: day(4) }])
+  const later  = kmLeft([{ ...longLeg[0], end: day(9) }])
+  check('a ship arriving sooner is closer, even on a much shorter lane', sooner < later, true,
+    `${Math.round(sooner)} km at 4d vs ${Math.round(later)} km at 9d`)
+
+  // CLAMPED, and the clamp is the model saying it has not left. A 4,450 km leg with 40 days to run
+  // needs 25,000 km of steaming it does not have.
+  const slack = positionOnItinerary([{ from: 'A', to: 'Z', coords: [[0, 0], [40, 0]], start: day(-5), end: day(40) }])
+  check('more days than the leg needs -> held at the origin',
+    JSON.stringify(slack.pos), JSON.stringify([0, 0]))
+
+  // Overdue: the ETA passed with no arrival reported. At the port is the honest place for it.
+  const late = positionOnItinerary([{ from: 'A', to: 'Z', coords: [[0, 0], [40, 0]], start: day(-30), end: day(-3) }])
+  check('past its ETA -> at the port', JSON.stringify(late.pos), JSON.stringify([40, 0]))
 }
 
 // ── vesselSplits: the diagnostic that replaced etaDisagreements ─────────────────────────

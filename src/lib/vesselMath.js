@@ -142,6 +142,77 @@ export function activeLegAt(legs, today = new Date()) {
 }
 
 /**
+ * Total length of a polyline in km.
+ *
+ * Recomputed rather than read from `sea_routes.distance_km`, because a leg's coords are what the
+ * ship is actually drawn along and the stored figure is about the whole stored route. They agree
+ * today; a divergence should move the marker with the line, not with the number.
+ */
+function polylineKm(coords) {
+  let total = 0
+  for (let i = 0; i < coords.length - 1; i += 1) total += haversine(coords[i], coords[i + 1])
+  return total
+}
+
+/**
+ * Service speed, km/day. 620 is a container ship at roughly 14 knots.
+ *
+ * NOT DERIVED FROM THIS FEED, deliberately. The 22 live vessels in the 2026-09-03 export imply 223
+ * to 689 km/day with a median of 427 — but those are not speeds. Each is a lane divided by a whole
+ * ETD -> ETA window, and that window also holds loading, transshipment dwell and waiting for a
+ * berth. Dividing by it produces a number no ship has ever steamed at.
+ */
+const SERVICE_KM_PER_DAY = 620
+
+/**
+ * How far along its leg a ship is drawn: BY THE TIME IT HAS LEFT, not by the fraction of its window
+ * that has elapsed.
+ *
+ * THE BUG THIS REPLACES. Position used to be `computeProgress(start, end)` — a fraction of TIME
+ * applied to a fraction of DISTANCE. Each ship therefore moved at its own implied average, and
+ * because those averages differ wildly, distance-to-port stopped tracking days-to-arrival at all:
+ *
+ *     ONE FREEDOM     9 days out   3,847 km to go
+ *     WAN HAI 507    10 days out   3,671 km to go   <- arrives LATER, drawn CLOSER
+ *
+ *     BAY BRIDGE        4 days out   1,382 km to go
+ *     SEASPAN BRISBANE  4 days out   2,010 km to go   <- same morning, 628 km apart
+ *
+ * Both are the same fault. A booking with more dead time in its window has that time smeared evenly
+ * along its line, dragging the marker back — so the map ordered ships by how padded their schedules
+ * were rather than by when they arrive.
+ *
+ * THE FIX IS ONE LINE OF ARITHMETIC: a ship still N days out is N x SERVICE_KM_PER_DAY from its
+ * next call. The same number for every ship, so two arriving on the same morning are drawn
+ * together, and one arriving sooner is always closer. That is the property the eye reads off this
+ * map, and the only one it can honestly offer — nothing here knows where a ship actually is.
+ *
+ * CLAMPED TO THE LEG, and the clamp is not an edge case: it is the model saying the ship has not
+ * left yet. A leg needing 33 days of steaming inside a 40-day window has seven days of slack in it,
+ * and those days are spent somewhere — at the load port, or at a hub — not crawling across an
+ * ocean at half speed. Five of 23 vessels sit at an origin under this, each for that reason, and
+ * one of them (RUBY TOWER, whose last leg is Los Angeles -> Oakland, 777 km with 8 days to run) is
+ * simply still at Los Angeles, which is true.
+ *
+ * The elapsed-time fraction remains for a leg with NO END DATE, where there is no remaining time to
+ * measure. `computeProgress` itself is untouched and still drives the tray's "ARRIVING IN 4 DAYS":
+ * that sentence is date arithmetic and was always right. Only the icon moves.
+ */
+function progressByTimeLeft(fallback, leg, today) {
+  if (!leg?.end || !leg.coords || leg.coords.length < 2) return fallback
+
+  const km = polylineKm(leg.coords)
+  if (!km) return fallback
+
+  const daysLeft = Math.round((midnight(leg.end) - midnight(today)) / DAY)
+  // Overdue: the ETA has passed with no arrival reported. At the port is the honest place for it,
+  // which is what clamping to 1 gives — the same answer computeProgress reached.
+  if (daysLeft <= 0) return 1
+
+  return Math.min(1, Math.max(0, 1 - (daysLeft * SERVICE_KM_PER_DAY) / km))
+}
+
+/**
  * Where the ship is, which way it points, and the track it has left.
  *
  * Reuses computeProgress and positionAtProgress unchanged — one leg at a time is the same problem
@@ -156,7 +227,7 @@ export function positionOnItinerary(legs, today = new Date()) {
   const active = activeLegAt(legs, today)
   if (!active) return null
   const coords = active.leg.coords
-  const { pos, cut } = positionAtProgress(coords, active.progress)
+  const { pos, cut } = positionAtProgress(coords, progressByTimeLeft(active.progress, active.leg, today))
   if (!pos) return null
 
   // The heading. At the end of a leg the next vertex IS the ship, and computeBearing of a point

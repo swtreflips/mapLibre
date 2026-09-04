@@ -200,8 +200,37 @@ re-tuning. Watch coordinate order — formulas tagged **[lat,lon]** are written 
 Leaflet source; convert to `[lng, lat]` when you port them.
 
 ### 5.1 Progress along the route
-`progress = (today - startDate) / (endDate - startDate)`, clamped to `[0, 1]`.
-Then find the point at fractional distance `progress` along the polyline:
+
+**A VESSEL IS PLACED BY THE TIME IT HAS LEFT, NOT BY THE FRACTION OF ITS WINDOW ELAPSED.**
+`progressByTimeLeft` puts a ship `daysLeft × 620 km` from its next call, clamped to the leg.
+
+It used to be the elapsed fraction applied to the lane, and that broke the one thing the map is read
+for — comparing markers. Each ship moved at its own implied average, and those differ by 3× because
+an ETD → ETA window also holds loading, transshipment dwell and berth waiting. Measured:
+
+```
+ONE FREEDOM        9 days out   3,847 km to go
+WAN HAI 507       10 days out   3,671 km to go   <- arrives LATER, drawn CLOSER
+BAY BRIDGE         4 days out   1,382 km to go
+SEASPAN BRISBANE   4 days out   2,010 km to go   <- same morning, 628 km apart
+```
+
+620 km/day is ~14 knots. It is **not** derived from the feed: those 22 vessels imply 223–689 km/day,
+which are not speeds but lanes divided by padded windows. Now every sailing ship shows 619–620.
+
+**The clamp is the model, not an edge case.** A leg needing 33 days of steaming inside a 40-day
+window has seven days of slack, spent at a load port or a hub rather than crawling an ocean at half
+speed — so the ship sits at its origin. Five of 23 do. One is RUBY TOWER, whose last leg is Los
+Angeles → Oakland (777 km, 8 days to run): it is simply still at Los Angeles, which is true.
+
+**A leg shorter than a day's steaming is binary** — at one end or the other. New York → Norfolk is
+568.9 km, about twenty hours; with one-day resolution there is no honest third answer.
+
+`computeProgress` is untouched and still drives the tray's "ARRIVING IN 4 DAYS", which was always
+right — that is date arithmetic. Only the icon moved. It remains the fallback for a leg with no end
+date, where there is no remaining time to measure. Guarded by `npm run test:grouping`.
+
+Underneath, both still find the point at a fractional distance along the polyline:
 
 > **Once per LEG, not once per voyage.** A sailing that calls at several ports is a chain of legs
 > (§8), and `positionOnItinerary` picks the leg today falls in before running exactly the maths
