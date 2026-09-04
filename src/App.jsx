@@ -1,12 +1,28 @@
 import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
 import MapView from './components/MapView'
 import Sidebar from './components/Sidebar'
-import inboundShipments from './data/inboundShipments'
+import LoginPage from './components/LoginPage'
+import LoadingScreen from './components/LoadingScreen'
+import { useSession } from './hooks/useSession'
+import { useInboundSnapshot } from './hooks/useInboundSnapshot'
 import { buildSearchIndex, matchIds } from './lib/search'
 import { subscribe, notesRevision, allNotes } from './lib/notes'
 import './App.css'
 
+/**
+ * THE SHIPMENTS NO LONGER COME FROM src/data/inboundShipments.js.
+ *
+ * That file was a hardcoded fixture compiled into the JS bundle, which is impossible to deploy: the
+ * bundle carries container numbers, BOLs, forwarders, vendors and PO numbers, and a static bundle is
+ * readable by anyone who loads the page. They now come from the latest `inbound_shipments` snapshot,
+ * which grants nothing to anon and needs a session.
+ *
+ * The fixture STAYS in the repo — tools/check-voyage-grouping.mjs asserts against CAUTIN and
+ * BUDAPEST by name — but nothing in the app imports it any more.
+ */
 function App() {
+  const { session, loading: authLoading } = useSession()
+  const { shipments, snapshot, loading: dataLoading } = useInboundSnapshot(session)
   const [selected, setSelected] = useState(null)
   // `query` is what is in the box, live. `filter` is what has been COMMITTED — Enter or a picked
   // suggestion. They are separate on purpose: typing must not touch the map, because committing
@@ -19,9 +35,9 @@ function App() {
   // note searchable the moment it is saved rather than on the next reload.
   const notesRev = useSyncExternalStore(subscribe, notesRevision, notesRevision)
   const index = useMemo(
-    () => buildSearchIndex(inboundShipments, allNotes()),
+    () => buildSearchIndex(shipments, allNotes()),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- allNotes() is read through notesRev
-    [notesRev],
+    [shipments, notesRev],
   )
 
   // MEMOIZED, and that is load-bearing rather than an optimisation. This Set is a dependency of
@@ -46,10 +62,18 @@ function App() {
     setSelected(null)
   }, [])
 
+  // THREE GATES, IN THIS ORDER, and the order is the point. `authLoading` must be checked before
+  // `session`, or the login screen flashes in front of someone who is already signed in on every
+  // single reload — getSession is a round trip, and "not known yet" is not "signed out".
+  if (authLoading) return <LoadingScreen message="Checking access…" />
+  if (!session) return <LoginPage />
+  if (dataLoading) return <LoadingScreen message="Loading shipments…" />
+
   return (
     <div className="app-layout">
       <Sidebar
-        shipments={inboundShipments}
+        shipments={shipments}
+        snapshot={snapshot}
         selected={selected}
         index={index}
         query={query}
@@ -59,7 +83,7 @@ function App() {
         onCommit={commitFilter}
         onClear={clearFilter}
       />
-      <MapView shipments={inboundShipments} onSelect={setSelected} matchedIds={matchedIds} />
+      <MapView shipments={shipments} onSelect={setSelected} matchedIds={matchedIds} />
     </div>
   )
 }

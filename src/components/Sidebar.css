@@ -614,3 +614,67 @@ body.is-resizing {
     transition: none;
   }
 }
+
+/* ── The footer: how old the data is, and the way out ───────────────────────────────── */
+/*
+  Shipments arrive as a thrice-weekly push, so the panel is always showing a photograph of some
+  moment. Every arrival, dwell and position on the map is computed against today from dates frozen
+  at that push, which makes the push date part of reading any of them — this codebase's own rule is
+  that a view hiding the age of its data gets trusted once and distrusted permanently.
+
+  `flex: 0 0 auto` so it never gets squeezed by the panel above, which owns the scroll.
+*/
+.sidebar__foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid rgb(var(--c-fog-200));
+  background: rgb(var(--c-fog-50));
+}
+
+/* The same mono micro-label the stat groups and card facts use, so the stamp reads as metadata
+   rather than as content. */
+.sidebar__stamp {
+  margin: 0;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgb(var(--c-fog-500));
+}
+
+.sidebar__stamp-n {
+  font-variant-numeric: tabular-nums;
+  color: rgb(var(--c-fog-400, var(--c-fog-500)));
+}
+
+/* A link, not a button-looking thing. Signing out is not an action anyone should reach for by
+   accident, so it gets no fill and no weight. */
+.sidebar__signout {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgb(var(--c-fog-500));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.sidebar__signout:hover {
+  color: rgb(var(--c-harbor-700, var(--c-fog-500)));
+}

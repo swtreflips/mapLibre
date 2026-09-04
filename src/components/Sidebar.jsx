@@ -6,6 +6,7 @@ import BrandMark from './BrandMark'
 import ContainerCard from './ContainerCard'
 import SearchBox from './SearchBox'
 import { MIN_WIDTH, MAX_WIDTH, clampWidth, readWidth, writeWidth } from '../lib/panelWidth'
+import { signOut } from '../hooks/useSession'
 import './Sidebar.css'
 
 // One number in the Overview. A live count is a BUTTON — clicking it filters the sidebar to the
@@ -334,8 +335,45 @@ function useSidebarWidth() {
   return { ref, width, commit, onPointerDown, onKeyDown }
 }
 
+/**
+ * How old the data is, and the way out.
+ *
+ * THE SNAPSHOT DATE IS NOT DECORATION. Shipments arrive as a thrice-weekly push, so what is on
+ * screen is always a photograph of some moment — and this codebase's own rule is that a view hiding
+ * the age of its data gets trusted once and distrusted permanently. Every arrival, dwell and
+ * position on the map is computed against today from dates frozen at that push.
+ *
+ * Deliberately coarse: the day, not the minute. Nobody plans against minutes, and a timestamp
+ * precise to the second invites a confidence in the freshness that a Monday/Wednesday/Friday
+ * cadence does not support.
+ */
+function Footer({ snapshot }) {
+  const day = snapshot?.uploadedAt
+    ? formatDay(new Date(snapshot.uploadedAt))
+    : null
+
+  return (
+    <div className="sidebar__foot">
+      <p className="sidebar__stamp">
+        {day ? (
+          <>
+            Snapshot {day}
+            <span className="sidebar__stamp-n">{snapshot.shipmentCount} shipments</span>
+          </>
+        ) : (
+          'No snapshot pushed yet'
+        )}
+      </p>
+      <button type="button" className="sidebar__signout" onClick={signOut}>
+        Sign out
+      </button>
+    </div>
+  )
+}
+
 export default function Sidebar({
   shipments,
+  snapshot,
   selected,
   index,
   query,
@@ -383,6 +421,8 @@ export default function Sidebar({
       ) : (
         <Overview stats={stats} onCommit={onCommit} />
       )}
+
+      <Footer snapshot={snapshot} />
 
       {/* Last child, so it paints over the panel's own edge. `separator` with an orientation and a
           value range is what a resize handle is in ARIA — it gives the keyboard case a meaning as

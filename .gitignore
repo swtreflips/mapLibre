@@ -21,6 +21,12 @@ tools/.cache
 .env.*
 !.env.example
 
+# NetSuite exports. These are the SOURCE of the shipment snapshot and carry container numbers,
+# BOLs, forwarders, vendors and PO numbers — the whole reason the data moved out of the bundle and
+# behind a login. `npm run push:snapshot` reads one from wherever it was downloaded and sends it to
+# Supabase; nothing needs a copy in the repo, and a copy in the repo is a copy on GitHub.
+*.csv
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

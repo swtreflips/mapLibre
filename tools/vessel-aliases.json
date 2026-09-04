@@ -1,0 +1,22 @@
+{
+  "_comment": [
+    "Vessel names that the automatic voyage-stripping rule cannot resolve on its own.",
+    "",
+    "The rule in push-inbound-snapshot.mjs handles the ordinary cases: a trailing (...) group, a",
+    "trailing '/ ...' segment, and a trailing voyage CODE - digits with an E or W on one end, like",
+    "102E, E056, 6133W. That pattern is deliberately narrow so it cannot eat a ship's own number:",
+    "'WAN HAI A01' and 'WAN HAI 523' are left exactly as they are, because A01 and 523 match none",
+    "of it.",
+    "",
+    "This file is for what the rule gets wrong or cannot know - the same curated-override habit as",
+    "ocean-routing's port_overrides.json. Keys are the RAW export string, lowercased and",
+    "whitespace-collapsed; values are the vessel name to group on.",
+    "",
+    "Every push prints each distinct raw name beside what it became, so a new voyage spelling shows",
+    "up on the run that introduces it rather than as a duplicated ship on the map weeks later.",
+    "",
+    "Empty today: the rule resolved every name in the 2026-09-03 export correctly, verified against",
+    "the three ONE HANNOVER spellings that were one sailing and the four WAN HAI A0x that are not."
+  ],
+  "aliases": {}
+}
