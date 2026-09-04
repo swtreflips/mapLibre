@@ -1117,8 +1117,12 @@ yielding an empty list reads as a bug rather than an empty set.
 
 ### Map interaction ([MapView.jsx](src/components/MapView.jsx))
 
-- **One selection at a time**, click to **toggle**; clicking empty water deselects. Selecting
-  **flies to** the holder (`flyTo`, `zoom = max(current, SELECT_ZOOM)` — only zooms in).
+- **One selection at a time**, click to **toggle**; clicking empty water deselects. **Selecting
+  never moves the camera.** It used to fly to the holder at zoom 5, which fought the user for the
+  view they had just aimed: every click here is on a marker already on screen, so there is nothing
+  to bring INTO view and the move only discarded the framing they chose. Anything that later
+  selects a holder the user CANNOT see — a search hit, a deep link — owns its own camera move at
+  the call site; it does not belong inside selection.
 - **En-route vessels:** selecting draws the dashed **remaining-route** line (position → POD).
 - **Rail movers draw their track ahead ALWAYS**, from the `rail-remaining` layer — every container
   on rail, not just a selected one, and only the portion still to travel. So it is styled quiet: a
@@ -1126,7 +1130,7 @@ yielding an empty list reads as a bug rather than an empty set.
   one you picked" and using it here would say that about every rail leg at once. Selecting a
   railcar therefore fills the tray and does nothing to the map — its holder carries
   `remaining: null` so the selection line stays empty.
-- **Ports:** selecting fills the tray and flies to; no dashed line.
+- **Ports:** selecting fills the tray; no dashed line, no camera move.
 - **Close ports are de-cluttered in pixel space** — `relaxOverlaps` in
   [declutter.js](src/map/declutter.js) pushes overlapping markers apart along the line between
   them, so relative bearing survives, and the offset goes on the `Marker` rather than the `lngLat`.
@@ -1252,7 +1256,8 @@ and **answering shipment lookups fast**. Two primary jobs:
 **UX stance: search/list-first, map-linked.** Lookups are best served by *search → result
 row → detail*, not by hunting on the globe. Grow the sidebar into **search bar → filter
 chips → results list → selected detail**; a row click does `map.flyTo` + opens that vessel's
-popup. The map and list read from one shared filtered dataset.
+popup — the one place a camera move is right, because a search result is by definition something
+the user cannot already see. It goes at that call site, not back inside `selectHolder`. The map and list read from one shared filtered dataset.
 
 **Roadmap**
 - **Phase 1 (first deployment):** manual thrice-weekly snapshot push to Supabase (§14); the

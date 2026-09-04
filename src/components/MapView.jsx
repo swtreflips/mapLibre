@@ -23,7 +23,6 @@ import { useRailRoutes } from '../hooks/useRailRoute'
 
 const INITIAL_CENTER = [0, 20]
 const INITIAL_ZOOM = 1.5
-const SELECT_ZOOM = 5 // fly-to zoom when a vessel is selected (only zooms in, never out)
 // OpenMapTiles is z0-14 and overzooms cleanly above that; 17 is enough to see individual
 // buildings and yard entrances for drayage work without pushing the tiles past usefulness.
 const MAX_ZOOM = 17
@@ -483,7 +482,8 @@ function buildFeatures(shipments, routesByKey, railByKey, map, portPoints, match
     const remaining = [pos, ...t.coords.slice(cut + 1)]
     // `remaining: null` on purpose. The track ahead is drawn ALWAYS, by its own layer below, so
     // selection must not also push it into `remaining-route` — clicking a railcar fills the tray
-    // and nothing else. `coordinates` carries the fly-to target that `remaining[0]` used to give.
+    // and nothing else. `coordinates` is the railcar's own position, which `remaining[0]` used to
+    // be the only way to reach.
     byId.set(t.key, { holder: { ...t, coordinates: pos }, remaining: null })
     railPaths.push({
       type: 'Feature',
@@ -897,11 +897,16 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
         map.getSource('remaining-route').setData(EMPTY_FC)
       }
 
-      // Toggle selection (one at a time, ships + containers). Selecting flies to center+zoom;
-      // ships also draw their dashed remaining route (containers have remaining=null).
-      // Select a HOLDER — a vessel or a port — and hand it to the tray. One at a time, click to
-      // toggle. Ports arrive here from a DOM marker rather than a rendered feature, so the
-      // fly-to target comes from the holder rather than the event.
+      // Select a HOLDER — a vessel, a train or a port — and hand it to the tray. One at a time,
+      // click to toggle. Ships and trains also draw their dashed remaining route; containers at
+      // rest have remaining=null.
+      //
+      // THE CAMERA IS NEVER TOUCHED. Selecting used to fly to the holder at zoom 5, which fights
+      // the user for control of the view they just aimed: every caller here is a click on a marker
+      // that is already on screen, so there is nothing to bring INTO view, and the move only throws
+      // away the framing they chose to make the click. Anything added later that selects a holder
+      // the user cannot see — a search hit, a deep link — needs its own explicit camera move at the
+      // call site, not a move buried in selection.
       const selectHolder = (key) => {
         if (!key) return
         if (selectedIdRef.current === key) {
@@ -913,14 +918,6 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
         selectedIdRef.current = key
         onSelect?.(entry.holder)
         map.getSource('remaining-route').setData(remainingFC(entry.remaining))
-        // `remaining[0][0]` — the first point of the FIRST REMAINING LEG, which is the ship itself.
-        // It was `remaining[0]` while a holder had one flat coordinate array; left alone that now
-        // hands flyTo a whole leg instead of a point, and MapLibre reads the first two numbers of
-        // whatever it is given rather than throwing.
-        const center = entry.holder.coordinates ?? entry.remaining?.[0]?.[0]
-        if (center) {
-          map.flyTo({ center, zoom: Math.max(map.getZoom(), SELECT_ZOOM), duration: 800 })
-        }
       }
       selectHolderRef.current = selectHolder
 
