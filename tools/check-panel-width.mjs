@@ -106,5 +106,49 @@ console.log('\nlocalStorage guards\n')
   check('...and a write simply reports false', writeWidth(520), false)
 }
 
+// ── The CSS has to agree with this module, and with itself ───────────────────────────
+//
+// Two failures here are completely silent: the stylesheet parses, the bundle builds, the rule
+// simply never applies. Both have already happened once.
+console.log('\ncontainer query wiring\n')
+{
+  // COMMENTS STRIPPED FIRST. This stylesheet explains the very mistake being checked for, and the
+  // explanation quotes the broken rule — so a parser that reads comments finds a container query
+  // targeting its own container inside the paragraph warning against it, and reports the bug it is
+  // describing rather than the code it is describing it in.
+  const css = readFileSync('src/components/Sidebar.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+
+  // 1. A CONTAINER QUERY STYLES A CONTAINER'S DESCENDANTS, NEVER THE CONTAINER ITSELF. Declaring
+  //    `container-type` on .tray__list and then writing `@container { .tray__list { … } }` is valid
+  //    CSS that can never match — which is what left the panel at one column stretched full width
+  //    across an expanded sidebar.
+  const declares = new Set(
+    [...css.matchAll(/([^{}]+)\{[^{}]*container-type\s*:/g)]
+      .map((m) => m[1].trim().split('\n').pop().trim()),
+  )
+  const queried = [...css.matchAll(/@container[^{]*\{\s*([^{]+)\{/g)].map((m) => m[1].trim())
+  console.log(`      container-type on: ${[...declares].join(', ')}`)
+  console.log(`      @container styles: ${queried.join(', ')}`)
+  check('a container is declared', declares.size > 0, true)
+  check('and something is queried', queried.length > 0, true)
+  const selfTargeting = (text) => {
+    const d = new Set([...text.matchAll(/([^{}]+)\{[^{}]*container-type\s*:/g)]
+      .map((m) => m[1].trim().split('\n').pop().trim()))
+    return [...text.matchAll(/@container[^{]*\{\s*([^{]+)\{/g)]
+      .map((m) => m[1].trim()).filter((sel) => d.has(sel))
+  }
+  check('no @container rule targets its own container', selfTargeting(css), [])
+  // The detector has to actually detect. Without this the check above passes on any stylesheet,
+  // including one where the regexes silently stopped matching anything at all.
+  check('...and the check would catch it if one did',
+    selfTargeting('.list{container-type:inline-size}@container (min-width:660px){.list{color:red}}'),
+    ['.list'])
+
+  // 2. THE THRESHOLD LIVES IN TWO FILES. This module owns the number and the stylesheet has to use
+  //    it; nothing else connects them, so a change to one is invisible to the other.
+  const breakpoints = [...css.matchAll(/@container\s*\(min-width:\s*(\d+)px\)/g)].map((m) => Number(m[1]))
+  check(`the CSS breakpoint is TWO_COL_AT (${TWO_COL_AT})`, breakpoints, [TWO_COL_AT])
+}
+
 console.log(failed === 0 ? '\nAll panel-width checks passed.' : `\n${failed} check(s) FAILED.`)
 process.exit(failed === 0 ? 0 : 1)

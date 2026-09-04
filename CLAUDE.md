@@ -690,10 +690,19 @@ still drag left rather than in the last few pixels.
 
 **Three decisions worth keeping:**
 
-- **The width is a CSS custom property**, and the two-column switch is a **container query on
-  `.tray__list`** — not a class React sets. The query asks how much room the cards actually have,
-  after padding, rather than trusting a number derived from the panel width somewhere else. There
-  is no second source of truth to fall out of step.
+- **The width is a CSS custom property**, and the two-column switch is a **container query** — not
+  a class React sets, so there is no second source of truth to fall out of step. **The query
+  container is `.panel--tray`, not `.tray__list`.** A container query styles a container's
+  DESCENDANTS and can never match the container itself; declaring `container-type` on the list and
+  then querying the list is valid CSS that silently never applies, which shipped once and left the
+  panel at one column stretched across the full width. `npm run test:panel` now asserts that no
+  `@container` rule targets its own container, and that the CSS breakpoint equals `TWO_COL_AT`.
+- **`.ccard` carries `min-height: min-content` as well as `flex: 0 0 auto`**, because each covers
+  only one layout. The `flex` guard — which exists to stop an overflowing tray squashing ~70px off
+  every card — is **inert on a grid item**, so changing the list from a flex column to a grid
+  quietly removed it and the squashing returned. The card's `overflow: hidden` sets its automatic
+  minimum size to 0, so without an explicit minimum nothing stops a constrained row compressing it,
+  and the same `overflow` then hides the evidence.
 - **The drag writes to the DOM, not to state.** `Sidebar` renders every visible container card;
   setState on each `pointermove` would re-render that list 60×/second for a number only CSS reads.
   The handler sets the property on the node through a ref; state and `localStorage` are written

@@ -10,11 +10,18 @@
 
 .ccard {
   position: relative;
-  /* Do NOT let the tray's flex column shrink a card. Flex items default to flex-shrink: 1, so an
-     overflowing column squashes every child instead of scrolling — which silently cut ~70px off
-     each card here, taking the bottom rows of the fact grid with it. The list scrolls; the cards
-     keep their height. */
+  /* Do NOT let the tray shrink a card. The list scrolls; the cards keep their height.
+     Overflowing it squashes every child instead — which silently cut ~70px off each card here,
+     taking the bottom rows of the fact grid with it.
+
+     TWO DECLARATIONS BECAUSE THE TRAY IS A GRID NOW, and each only covers one layout. `flex` is
+     inert on a grid item, so when .tray__list changed from a flex column to a grid the guard
+     quietly stopped existing and the squashing came straight back. `min-height` covers both, and
+     is what actually restores the floor: `overflow: hidden` below sets this box's automatic
+     minimum size to 0, so without an explicit minimum there is nothing to stop a constrained row
+     compressing it — and the same `overflow` then hides the evidence. */
   flex: 0 0 auto;
+  min-height: min-content;
   /* Clips the status bar to the rounded corners. Combined with the shrink above it is safe;
      without it, it would have hidden the squashing rather than caused it. */
   overflow: hidden;

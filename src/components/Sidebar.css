@@ -168,6 +168,17 @@ body.is-resizing {
   flex-direction: column;
   padding: 0;
   overflow: hidden; /* the list owns the scroll, so the sticky header has something to stick to */
+  /*
+    THE QUERY CONTAINER FOR THE CARD LIST, and it has to be this element rather than the list.
+    A container query styles a container's DESCENDANTS; it can never match the container itself.
+    Declaring `container-type` on .tray__list and then writing `@container { .tray__list { … } }`
+    parses, builds, ships — and silently never applies, which left the list at one column stretched
+    across the full width of an expanded panel.
+
+    This panel carries no padding of its own, so its inline size IS the sidebar width, and the
+    threshold below can be read against --sidebar-w directly.
+  */
+  container-type: inline-size;
 }
 
 .tray__head {
@@ -271,13 +282,23 @@ body.is-resizing {
   overflow-y: auto;
   display: grid;
   grid-template-columns: 1fr;
-  align-content: start; /* or a short list stretches its rows down the panel */
   gap: 10px;
   padding: 12px;
-  container-type: inline-size;
+  /*
+    BOTH AXES HELD TO CONTENT SIZE, and neither is optional.
+
+    `align-content: start` stops a short list stretching its rows down the panel. `align-items:
+    start` stops a card stretching to match a taller neighbour in the same row, which only exists
+    once there are two columns — a stretched card's status bar and fact grid would sit in a box
+    with empty space under them.
+  */
+  align-content: start;
+  align-items: start;
 }
 
-@container (min-width: 636px) {
+/* 660px of PANEL, not of list: the query container is .panel--tray, whose inline size is the
+   sidebar width. See src/lib/panelWidth.js for why 660. */
+@container (min-width: 660px) {
   .tray__list {
     grid-template-columns: 1fr 1fr;
   }
