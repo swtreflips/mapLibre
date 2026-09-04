@@ -276,31 +276,45 @@ body.is-resizing {
   ~313px each, 12% tighter than the ~356px a card gets today, and by the 760px stop they are ~363px
   — wider than the single column is now. See src/lib/panelWidth.js for the arithmetic.
 */
+/*
+  ONE COLUMN IS STILL A FLEX COLUMN — deliberately unchanged, and that is the point.
+
+  This was a flex column long before the panel could resize, and .ccard's `flex: 0 0 auto` is what
+  stops an overflowing list squashing every card instead of scrolling (see ContainerCard.css, which
+  records the ~70px it once cost). Making the list a grid for BOTH cases turned that guard inert and
+  brought the squashing straight back in the default, one-column state — the state every user is in
+  by default, to fix a case that only exists past 660px.
+
+  So the layout only changes where the feature actually is: the second column. The default panel
+  renders through exactly the code path it always did.
+*/
 .tray__list {
   flex: 1;
   min-height: 0; /* without this the flex child refuses to shrink and the panel scrolls instead */
   overflow-y: auto;
-  display: grid;
-  grid-template-columns: 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
   padding: 12px;
-  /*
-    BOTH AXES HELD TO CONTENT SIZE, and neither is optional.
-
-    `align-content: start` stops a short list stretching its rows down the panel. `align-items:
-    start` stops a card stretching to match a taller neighbour in the same row, which only exists
-    once there are two columns — a stretched card's status bar and fact grid would sit in a box
-    with empty space under them.
-  */
-  align-content: start;
-  align-items: start;
 }
 
-/* 660px of PANEL, not of list: the query container is .panel--tray, whose inline size is the
-   sidebar width. See src/lib/panelWidth.js for why 660. */
+/*
+  TWO COLUMNS, and only here does this become a grid.
+
+  660px of PANEL, not of list: the query container is .panel--tray, whose inline size is the sidebar
+  width. See src/lib/panelWidth.js for why 660.
+
+  Both alignments are load-bearing in grid and meaningless in flex, which is why they live here.
+  `align-content: start` stops a short list stretching its rows down the panel; `align-items: start`
+  stops a card stretching to match a taller neighbour in its row and sitting in a box with empty
+  space under its fact grid — a problem that cannot exist until there are two cards in a row.
+*/
 @container (min-width: 660px) {
   .tray__list {
+    display: grid;
     grid-template-columns: 1fr 1fr;
+    align-content: start;
+    align-items: start;
   }
 }
 
