@@ -304,17 +304,29 @@ body.is-resizing {
   660px of PANEL, not of list: the query container is .panel--tray, whose inline size is the sidebar
   width. See src/lib/panelWidth.js for why 660.
 
-  Both alignments are load-bearing in grid and meaningless in flex, which is why they live here.
-  `align-content: start` stops a short list stretching its rows down the panel; `align-items: start`
-  stops a card stretching to match a taller neighbour in its row and sitting in a box with empty
-  space under its fact grid — a problem that cannot exist until there are two cards in a row.
+  `align-content: start` stops a SHORT LIST stretching its rows down the panel, and is meaningless
+  in flex — which is why it lives here.
+
+  `align-items` IS LEFT AT ITS DEFAULT `stretch`, ON PURPOSE. A grid row is as tall as its tallest
+  card, so expanding one card in a row leaves the other short: with `start` the pair ends in a
+  ragged edge, and the next row's card sits hard against the expanded card's bottom border and
+  shadow while a hole opens beside its neighbour. Stretching squares the pair off, so the gap below
+  a row is the same 16px whatever is expanded inside it. It cannot cause the squashing this file
+  has fought twice — stretch only ever GROWS an item to the row height, and the row is sized by its
+  tallest item, so a card can never end up shorter than its content.
+
+  The cost is white space under the shorter card's fact grid. That is the right trade: a little
+  empty card reads as a card with nothing more to say, while a ragged row edge reads as a bug.
+
+  ROW GAP IS LARGER THAN COLUMN GAP. Rows here differ wildly in height once cards expand, and 10px
+  that reads as generous between two equal cards reads as crowded under a tall one.
 */
 @container (min-width: 660px) {
   .tray__list {
     display: grid;
     grid-template-columns: 1fr 1fr;
     align-content: start;
-    align-items: start;
+    gap: 16px 10px;
   }
 }
 
