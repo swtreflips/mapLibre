@@ -21,13 +21,21 @@
  * Deterministic for a given input order — callers must pass markers in a stable order (sorted by
  * key), or offsets will flip between frames and the markers will jitter in the bad sense.
  *
+ * PINNED MARKERS TAKE PART BUT DO NOT MOVE. A vessel arriving at its discharge port lands on the
+ * exact coordinate that port's own card is drawn at, and the two must separate — but the card is
+ * positioned by its own pass and cannot be shoved by this one, or the two passes would fight and
+ * the card would drift a little further every frame. Pinning it makes the ship take the whole
+ * correction instead of half. Two pinned markers are simply left alone: neither can yield, so
+ * there is nothing to compute.
+ *
  * @param {{x:number,y:number}[]} points  projected marker positions, screen px
  * @param {number[]} radii                each marker's visual radius, screen px
  * @param {number} gap                    clear space to leave between two markers, px
  * @param {number} passes                 relaxation iterations; more = closer to fully resolved
+ * @param {boolean[]|null} pinned         markers that others must clear but that never move
  * @returns {[number,number][]} per-marker [dx, dy] offset in px, [0,0] when nothing overlaps
  */
-export function relaxOverlaps(points, radii, gap = 4, passes = 24) {
+export function relaxOverlaps(points, radii, gap = 4, passes = 24, pinned = null) {
   const n = points.length
   if (n < 2) return points.map(() => [0, 0])
 
@@ -37,6 +45,9 @@ export function relaxOverlaps(points, radii, gap = 4, passes = 24) {
     let moved = false
     for (let i = 0; i < n; i++) {
       for (let j = i + 1; j < n; j++) {
+        // Two anchors cannot resolve anything between them, and trying would move a marker whose
+        // whole purpose is to stay put.
+        if (pinned?.[i] && pinned?.[j]) continue
         const need = radii[i] + radii[j] + gap
         let dx = p[j].x - p[i].x
         let dy = p[j].y - p[i].y
@@ -50,15 +61,25 @@ export function relaxOverlaps(points, radii, gap = 4, passes = 24) {
           dy = 0
           d = 1
         }
-        // Split the correction between the pair so neither is privileged, and so a cluster's
-        // centre of mass stays put rather than the whole group drifting toward the last one moved.
-        const push = (need - d) / 2
         const ux = dx / d
         const uy = dy / d
-        p[i].x -= ux * push
-        p[i].y -= uy * push
-        p[j].x += ux * push
-        p[j].y += uy * push
+        // Split the correction between the pair so neither is privileged, and so a cluster's
+        // centre of mass stays put rather than the whole group drifting toward the last one moved.
+        // Against an anchor there is nothing to split: the movable one covers the whole distance,
+        // which is what makes a ship clear a port card completely rather than half of it.
+        if (pinned?.[i]) {
+          p[j].x += ux * (need - d)
+          p[j].y += uy * (need - d)
+        } else if (pinned?.[j]) {
+          p[i].x -= ux * (need - d)
+          p[i].y -= uy * (need - d)
+        } else {
+          const push = (need - d) / 2
+          p[i].x -= ux * push
+          p[i].y -= uy * push
+          p[j].x += ux * push
+          p[j].y += uy * push
+        }
         moved = true
       }
     }
