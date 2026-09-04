@@ -201,8 +201,33 @@ Leaflet source; convert to `[lng, lat]` when you port them.
 
 ### 5.1 Progress along the route
 
-**A VESSEL IS PLACED BY THE TIME IT HAS LEFT, NOT BY THE FRACTION OF ITS WINDOW ELAPSED.**
-`progressByTimeLeft` puts a ship `daysLeft × 620 km` from its next call, clamped to the leg.
+**OUTWARD FROM THE LOADING PORT FOR THE FIRST HALF, INWARD FROM THE DISCHARGE PORT FOR THE SECOND.**
+`progressByTimeLeft` draws a ship `elapsed × 620 km` from where it sailed until the midpoint of its
+window, then `daysLeft × 620 km` from where it is going. **Both halves cap at half the leg.**
+
+An ETD → ETA window is not all sailing — it also holds loading, transshipment dwell and berth
+waiting, and on these lanes that is most of it. Every model is a choice about **where to draw the
+waiting**, and there have been three:
+
+| | |
+|---|---|
+| spread evenly | each ship moves at its own implied average, so distance stopped tracking days-to-arrival: a ship 10 days out was drawn closer than one 9 days out |
+| all at the start | arrivals converge correctly, but ZEPHYR LUMOS sat at **0%** hugging Laem Chabang having sailed sixteen days earlier |
+| **in the middle** | departure looks real, arrival stays coherent, and the waiting lands where it actually happens — at a hub, mid-route |
+
+The cap is what makes the handover continuous. Computed independently the two rules disagree —
+measured **7,600 km apart** at the crossover on one lane. Capping both at the midpoint means each
+saturates there, so at the moment the rule changes both give the same answer, and a ship with slack
+simply holds mid-route until the inbound clock catches up.
+
+**The speed is `max(620, leg ÷ window)`** — a lane demanding 689 km/day is sailed at 689. Without it
+the cap would not bind on a tight schedule and the handover would jump again. It also keeps an
+impossible booking honest: a leg with today's ETD and a 10-day ETA across 19,091 km needs 1,909
+km/day, and this draws it leaving today rather than two thirds of the way across the Pacific.
+
+**Strict ordering holds through the inbound half** — every ship shows 620 km/day and two arriving
+together are drawn together. Past the midpoint the cap can invert two ships on very
+different-length lanes, which is the price of departure looking real and is deliberate.
 
 It used to be the elapsed fraction applied to the lane, and that broke the one thing the map is read
 for — comparing markers. Each ship moved at its own implied average, and those differ by 3× because

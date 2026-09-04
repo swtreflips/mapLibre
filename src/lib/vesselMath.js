@@ -165,51 +165,64 @@ function polylineKm(coords) {
 const SERVICE_KM_PER_DAY = 620
 
 /**
- * How far along its leg a ship is drawn: BY THE TIME IT HAS LEFT, not by the fraction of its window
- * that has elapsed.
+ * How far along its leg a ship is drawn: OUTWARD FROM THE ORIGIN for the first half of the voyage,
+ * INWARD FROM THE DESTINATION for the second.
  *
- * THE BUG THIS REPLACES. Position used to be `computeProgress(start, end)` — a fraction of TIME
- * applied to a fraction of DISTANCE. Each ship therefore moved at its own implied average, and
- * because those averages differ wildly, distance-to-port stopped tracking days-to-arrival at all:
+ * THE SLACK HAS TO GO SOMEWHERE, and that is the whole design. An ETD -> ETA window is not all
+ * sailing: it also holds loading, transshipment dwell and waiting for a berth. On these lanes that
+ * is most of it — the windows imply 223 to 689 km/day against a real 620 at 14 knots. Every model
+ * here is a choice about WHERE to draw the waiting.
  *
- *     ONE FREEDOM     9 days out   3,847 km to go
- *     WAN HAI 507    10 days out   3,671 km to go   <- arrives LATER, drawn CLOSER
+ *   Spread evenly    each ship moves at its own implied average, so distance stopped tracking
+ *   (the original)   days-to-arrival at all. A ship 10 days out was drawn closer than one 9 days
+ *                    out, because its booking was more padded.
  *
- *     BAY BRIDGE        4 days out   1,382 km to go
- *     SEASPAN BRISBANE  4 days out   2,010 km to go   <- same morning, 628 km apart
+ *   All at the start ships arriving together converge correctly, but a vessel 15 days out of Laem
+ *   (the first fix)  Chabang still hugs the coast as though it left on Tuesday. ZEPHYR LUMOS sat
+ *                    at 0% having sailed on 19 August.
  *
- * Both are the same fault. A booking with more dead time in its window has that time smeared evenly
- * along its line, dragging the marker back — so the map ordered ships by how padded their schedules
- * were rather than by when they arrive.
+ *   In the middle    departure looks real, arrival stays coherent, and the waiting lands where it
+ *   (this one)       actually happens: at a hub, mid-route.
  *
- * THE FIX IS ONE LINE OF ARITHMETIC: a ship still N days out is N x SERVICE_KM_PER_DAY from its
- * next call. The same number for every ship, so two arriving on the same morning are drawn
- * together, and one arriving sooner is always closer. That is the property the eye reads off this
- * map, and the only one it can honestly offer — nothing here knows where a ship actually is.
+ * FIRST HALF: `elapsed x speed` from the port of loading. The ship leaves at a plausible speed the
+ * day it sails, which is what the origin end of the map is read for.
  *
- * CLAMPED TO THE LEG, and the clamp is not an edge case: it is the model saying the ship has not
- * left yet. A leg needing 33 days of steaming inside a 40-day window has seven days of slack in it,
- * and those days are spent somewhere — at the load port, or at a hub — not crawling across an
- * ocean at half speed. Five of 23 vessels sit at an origin under this, each for that reason, and
- * one of them (RUBY TOWER, whose last leg is Los Angeles -> Oakland, 777 km with 8 days to run) is
- * simply still at Los Angeles, which is true.
+ * SECOND HALF: `remaining x speed` back from the port of discharge. Unchanged from the previous
+ * model, so two ships arriving on the same morning are still drawn together whatever their origins.
  *
- * The elapsed-time fraction remains for a leg with NO END DATE, where there is no remaining time to
- * measure. `computeProgress` itself is untouched and still drives the tray's "ARRIVING IN 4 DAYS":
- * that sentence is date arithmetic and was always right. Only the icon moves.
+ * BOTH HALVES ARE CAPPED AT HALF THE LEG, and that cap is what makes the handover continuous rather
+ * than a jump. Computed independently the two rules disagree: measured on one lane they were
+ * 7,600 km apart at the crossover. Capping both at the midpoint means each saturates there, so at
+ * the moment the rule changes both give exactly the same answer. A ship with slack simply holds
+ * mid-route until the inbound clock catches up — which is the hub, drawn.
+ *
+ * THE SPEED IS AT LEAST WHAT THE SCHEDULE DEMANDS. `max(SERVICE_KM_PER_DAY, leg / window)` — a lane
+ * needing 689 km/day is being sailed at 689, and without this the cap would not bind on a tight
+ * schedule and the handover would jump again. It also keeps an impossible booking honest rather
+ * than smoothing it: a leg with today's ETD and a 10-day ETA across 19,091 km needs 1,909 km/day,
+ * and this draws it leaving today rather than two thirds of the way across the Pacific.
  */
 function progressByTimeLeft(fallback, leg, today) {
-  if (!leg?.end || !leg.coords || leg.coords.length < 2) return fallback
+  if (!leg?.end || !leg.start || !leg.coords || leg.coords.length < 2) return fallback
 
   const km = polylineKm(leg.coords)
   if (!km) return fallback
 
   const daysLeft = Math.round((midnight(leg.end) - midnight(today)) / DAY)
-  // Overdue: the ETA has passed with no arrival reported. At the port is the honest place for it,
-  // which is what clamping to 1 gives — the same answer computeProgress reached.
+  // Overdue: the ETA has passed with no arrival reported. At the port is the honest place for it.
   if (daysLeft <= 0) return 1
 
-  return Math.min(1, Math.max(0, 1 - (daysLeft * SERVICE_KM_PER_DAY) / km))
+  const daysElapsed = Math.max(0, Math.round((midnight(today) - midnight(leg.start)) / DAY))
+  const half = km / 2
+  const speed = Math.max(SERVICE_KM_PER_DAY, km / (daysElapsed + daysLeft))
+
+  // `elapsed < left` IS the first half: it rearranges to elapsed < (elapsed + left) / 2.
+  const fromEnd =
+    daysElapsed < daysLeft
+      ? km - Math.min(daysElapsed * speed, half)   // outbound: measured from the origin
+      : Math.min(daysLeft * speed, half)           // inbound: measured from the destination
+
+  return Math.min(1, Math.max(0, 1 - fromEnd / km))
 }
 
 /**

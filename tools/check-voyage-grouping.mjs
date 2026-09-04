@@ -426,13 +426,13 @@ console.log('\nposition along the itinerary\n')
   check('between the calls, on leg 2', between.index, 1)
   check('...with only one line left', between.remaining.length, 1)
 
-  // A SHORT LEG IS BINARY, and that is the model rather than a gap in it. New York -> Norfolk is
-  // ~400 km here (568.9 in sea_routes) — under one day's steaming at 620 km/day. With five days
-  // still to run, "days left x service speed" is further than the whole leg, so the ship has not
-  // left New York yet. It is at one end or the other, which is all a map with one-day resolution
-  // can honestly say about a twenty-hour hop.
-  check('...still at New York, the leg being shorter than a day of steaming',
-    JSON.stringify(between.pos), JSON.stringify([-74, 40]))
+  // A SHORT LEG WITH SLACK HOLDS AT ITS MIDPOINT. New York -> Norfolk is ~400 km here (568.9 in
+  // sea_routes), about twenty hours of steaming, and the fixture gives it nine days. Both halves of
+  // the model cap at half the leg, so the ship reaches the middle and waits there for the inbound
+  // clock — rather than sitting on New York and then teleporting, which is what capping at the ends
+  // used to do.
+  check('...at the midpoint of a short leg with days to spare',
+    between.pos.map((n) => Math.round(n * 10) / 10).join(','), '-75.1,38.5')
 
   // On a leg long enough to sail, it IS partway — and exactly `days x speed` from the far end.
   const longHop = [
@@ -441,16 +441,17 @@ console.log('\nposition along the itinerary\n')
     { from: 'New York, NY', to: 'Far, XX', coords: [[-74, 40], [-14, 40]],
       start: new Date(2099, 9, 4), end: new Date(2099, 9, 13) },
   ]
-  const sailing = positionOnItinerary(longHop, new Date(2099, 9, 8))
+  // 10 Oct: six days into a nine-day leg, so past the midpoint and measuring INWARD from the call.
+  const sailing = positionOnItinerary(longHop, new Date(2099, 9, 10))
   check('a long second leg puts the ship in transit on it', sailing.index, 1)
   check('...east of New York', sailing.pos[0] > -74, true)
   {
     let km = 0
     const c = sailing.remaining[0]
     for (let i = 0; i < c.length - 1; i += 1) km += haversine(c[i], c[i + 1])
-    // 5 days to run. The constant lives in vesselMath; this checks the relationship holds.
-    check('...and exactly five days of steaming from the call', Math.abs(km / 5 - 620) < 25, true,
-      `implied ${Math.round(km / 5)} km/day`)
+    // 3 days to run. The constant lives in vesselMath; this checks the relationship holds.
+    check('...and exactly three days of steaming from the call', Math.abs(km / 3 - 620) < 25, true,
+      `implied ${Math.round(km / 3)} km/day`)
   }
 
   // Past every call, which is reachable while a box is aboard with no arrival reported. Held at
@@ -535,8 +536,10 @@ console.log('\ndistance tracks days, not schedule padding\n')
   const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); d.setHours(0,0,0,0); return d }
   // Two legs to the same meridian, one twice as long as the other. Degrees of longitude at the
   // equator are equal-length, so the km ratio is exactly the coordinate ratio.
-  const shortLeg = [{ from: 'A', to: 'Z', coords: [[0, 0], [40, 0]], start: day(-30), end: day(6) }]
-  const longLeg  = [{ from: 'B', to: 'Z', coords: [[0, 0], [80, 0]], start: day(-60), end: day(6) }]
+  // Long enough that six days of steaming (3,720 km) is inside half of each leg, so the midpoint cap
+  // does not bind and this measures the inbound rule rather than the cap.
+  const shortLeg = [{ from: 'A', to: 'Z', coords: [[0, 0], [80, 0]], start: day(-30), end: day(6) }]
+  const longLeg  = [{ from: 'B', to: 'Z', coords: [[0, 0], [160, 0]], start: day(-60), end: day(6) }]
 
   const kmLeft = (legs) => {
     const at = positionOnItinerary(legs)
@@ -562,11 +565,32 @@ console.log('\ndistance tracks days, not schedule padding\n')
   check('a ship arriving sooner is closer, even on a much shorter lane', sooner < later, true,
     `${Math.round(sooner)} km at 4d vs ${Math.round(later)} km at 9d`)
 
-  // CLAMPED, and the clamp is the model saying it has not left. A 4,450 km leg with 40 days to run
-  // needs 25,000 km of steaming it does not have.
+  // SLACK IS HELD MID-ROUTE, which is the point of the halves. A 4,450 km leg with 45 days allotted
+  // has far more time than it needs; the ship sails out at service speed, reaches the middle, and
+  // waits there for the inbound clock. That is the hub, drawn — not a ship pinned to its load port
+  // a fortnight after it sailed.
   const slack = positionOnItinerary([{ from: 'A', to: 'Z', coords: [[0, 0], [40, 0]], start: day(-5), end: day(40) }])
-  check('more days than the leg needs -> held at the origin',
-    JSON.stringify(slack.pos), JSON.stringify([0, 0]))
+  check('slack holds a ship mid-route, not at its origin',
+    JSON.stringify(slack.pos), JSON.stringify([20, 0]))
+
+  // Departed today: at the origin, and only then.
+  const justSailed = positionOnItinerary([{ from: 'A', to: 'Z', coords: [[0, 0], [40, 0]], start: day(0), end: day(40) }])
+  check('a ship that sailed today IS at its origin', JSON.stringify(justSailed.pos), JSON.stringify([0, 0]))
+
+  // THE HANDOVER MUST NOT JUMP. Computed independently the outbound and inbound rules disagree —
+  // measured 7,600 km apart at the crossover on one lane — which is why both cap at half the leg
+  // and the speed is at least what the schedule demands. Walking a whole voyage day by day, no
+  // single day may move the ship further than one day of steaming.
+  const leg = { from: 'A', to: 'Z', coords: [[0, 0], [120, 0]], start: day(-40), end: day(20) }
+  let worst = 0
+  let prev = null
+  for (let d = -40; d <= 20; d += 1) {
+    const at = positionOnItinerary([leg], day(d))
+    if (prev) worst = Math.max(worst, haversine(prev, at.pos))
+    prev = at.pos
+  }
+  check('no day of the voyage moves the ship more than a day of steaming', worst <= 640, true,
+    `worst single-day step ${Math.round(worst)} km`)
 
   // Overdue: the ETA passed with no arrival reported. At the port is the honest place for it.
   const late = positionOnItinerary([{ from: 'A', to: 'Z', coords: [[0, 0], [40, 0]], start: day(-30), end: day(-3) }])
