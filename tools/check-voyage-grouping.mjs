@@ -23,19 +23,23 @@
 import { readFileSync } from 'fs'
 import { pathToFileURL } from 'url'
 
-// holders.js imports './vesselMath' without an extension — Vite resolves that, node does not.
-// Rewrite it to an absolute file URL and load the result as a data: module, so the test exercises
-// the REAL file rather than a copy that can drift from it.
+// holders.js imports its siblings without an extension — Vite resolves that, node does not. Rewrite
+// EVERY relative specifier to an absolute file URL and load the result as a data: module, so the
+// test exercises the REAL file rather than a copy that can drift from it.
+//
+// Rewriting them one by one is what broke this: the loader named './vesselMath' explicitly, so when
+// holders.js later imported './smoothRoute' too, the whole suite died on an unresolved specifier
+// before a single assertion ran — and a suite that never runs reports nothing, not a failure.
 const ROOT = pathToFileURL(process.cwd() + '/').href
 const VESSEL_MATH = new URL('src/lib/vesselMath.js', ROOT).href
 const patched = readFileSync('src/lib/holders.js', 'utf8').replace(
-  "from './vesselMath'",
-  `from '${VESSEL_MATH}'`,
+  /from '\.\/([\w-]+)'/g,
+  (_, name) => `from '${new URL(`src/lib/${name}.js`, ROOT).href}'`,
 )
 const { buildHolders, vesselSplits } = await import(
   'data:text/javascript;base64,' + Buffer.from(patched).toString('base64')
 )
-const { normalizeKey, positionOnItinerary, haversine } = await import(VESSEL_MATH)
+const { normalizeKey, positionOnItinerary, haversine, railRunIn } = await import(VESSEL_MATH)
 
 let failed = 0
 const check = (name, got, want) => {
@@ -418,8 +422,13 @@ console.log('\nposition along the itinerary\n')
   const early = positionOnItinerary(legs, new Date(2099, 8, 1)) // 1 Sep 2099, ETA NY 4 Oct
   check('before the first call, on leg 1', early.index, 0)
   check('...with two dashed lines left', early.remaining.length, 2)
+  // ASSERTED BY ITS ENDS, not by the whole array: `buildItinerary` runs each leg through
+  // `smoothLane`, so the two-point fixture lane comes back densified along the great circle. What
+  // must hold is that the second line still runs New York -> Norfolk and still touches both ports.
   check('...the second being the port-to-port leg',
-    JSON.stringify(early.remaining[1]), JSON.stringify([[-74, 40], [-76.3, 36.9]]))
+    JSON.stringify([early.remaining[1][0], early.remaining[1].at(-1)]),
+    JSON.stringify([[-74, 40], [-76.3, 36.9]]))
+  check('...drawn as a curve rather than a straight segment', early.remaining[1].length > 2, true)
 
   // Between the calls: the leg the OLD model had no way to express at all.
   const between = positionOnItinerary(legs, new Date(2099, 9, 8)) // 8 Oct, NY 4 Oct -> Norfolk 13 Oct
@@ -431,8 +440,20 @@ console.log('\nposition along the itinerary\n')
   // the model cap at half the leg, so the ship reaches the middle and waits there for the inbound
   // clock — rather than sitting on New York and then teleporting, which is what capping at the ends
   // used to do.
-  check('...at the midpoint of a short leg with days to spare',
-    between.pos.map((n) => Math.round(n * 10) / 10).join(','), '-75.1,38.5')
+  //
+  // Checked as a DISTANCE, not a coordinate. The midpoint of the drawn great circle is not the
+  // midpoint of a straight lon/lat segment — here they differ by about a tenth of a degree — and
+  // pinning the literal would make any change to the smoothing constants look like a positioning
+  // regression. What the model promises is that the two halves meet, so measure that.
+  {
+    // From the PORTS, not from `remaining` — `remaining[0]` is sliced at the ship, so measuring
+    // along it puts the whole leg on one side by construction and every ship looks centred.
+    const toNY = haversine(between.pos, [-74, 40])
+    const toNorfolk = haversine(between.pos, [-76.3, 36.9])
+    const skew = Math.abs(toNY - toNorfolk) / (toNY + toNorfolk)
+    check(`...at the midpoint of a short leg with days to spare (${(skew * 100).toFixed(1)}% off centre)`,
+      skew < 0.05, true)
+  }
 
   // On a leg long enough to sail, it IS partway — and exactly `days x speed` from the far end.
   const longHop = [
@@ -595,6 +616,52 @@ console.log('\ndistance tracks days, not schedule padding\n')
   // Overdue: the ETA passed with no arrival reported. At the port is the honest place for it.
   const late = positionOnItinerary([{ from: 'A', to: 'Z', coords: [[0, 0], [40, 0]], start: day(-30), end: day(-3) }])
   check('past its ETA -> at the port', JSON.stringify(late.pos), JSON.stringify([40, 0]))
+}
+
+// ── RAIL HOLDS AT THE PORT, THEN ROLLS ─────────────────────────────────────────
+//
+// The one place the inland leg deliberately differs from a sea leg. Both windows are mostly dead
+// time; what differs is WHERE the box spends it. An ocean booking's slack is transshipment, so a sea
+// leg holds at its MIDPOINT. A rail box's slack is being unloaded and mounted, which happens at the
+// PORT before it moves at all.
+//
+// Measured, `actual_portdate -> expected_lastcy_date` implies 131, 142 and 224 km/day on the three
+// live movements — three to five times slower than any train runs, because that window is not a rail
+// transit. Interpolating across it drew a box 70% of the way to Salt Lake City while it was still
+// on the dock at Oakland.
+console.log('\nthe inland leg holds at the port\n')
+{
+  const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); d.setHours(0,0,0,0); return d }
+  const track = [[0, 0], [20, 0]]          // ~2,226 km, about 3.2 days at 700 km/day
+  const long  = [[0, 0], [40, 0]]          // ~4,452 km
+  const kmOf = (c) => { let t = 0; for (let i = 0; i < c.length - 1; i += 1) t += haversine(c[i], c[i + 1]); return t }
+  const toGo = (c, p) => kmOf(c) * (1 - p)
+
+  check('more days left than the run needs -> still at the port',
+    railRunIn(track, day(-6), day(5)), 0)
+  check('...and the day before it must leave, still at the port',
+    railRunIn(track, day(-6), day(4)), 0)
+
+  const rolling = railRunIn(track, day(-6), day(3))
+  check('once the days only just cover the run, it rolls', rolling > 0, true)
+  check(`...at about the service speed (implied ${Math.round(toGo(track, rolling) / 3)} km/day)`,
+    Math.abs(toGo(track, rolling) / 3 - 700) < 25, true)
+
+  check('past its CY date -> at the yard', railRunIn(track, day(-9), day(-1)), 1)
+
+  // The ordering property, same as the sea legs: two boxes due on the same day are the same
+  // DISTANCE from their yards, whatever the length of track behind them.
+  const a = toGo(track, railRunIn(track, day(-6), day(2)))
+  const b = toGo(long, railRunIn(long, day(-6), day(2)))
+  check(`two boxes due the same day are the same distance out (${Math.round(a)} vs ${Math.round(b)} km)`,
+    Math.round(a) === Math.round(b), true)
+
+  // A schedule tighter than 700 km/day still lands on its date rather than being held past it.
+  const tight = railRunIn(long, day(-1), day(2))
+  check('a schedule tighter than the service speed still moves', tight > 0, true)
+
+  check('no end date -> nothing to measure', railRunIn(track, day(-6), null), 0)
+  check('a degenerate track does not throw', railRunIn([[0, 0]], day(-6), day(2)), 0)
 }
 
 // ── vesselSplits: the diagnostic that replaced etaDisagreements ─────────────────────────
