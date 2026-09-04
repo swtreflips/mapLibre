@@ -277,9 +277,14 @@ function computeBearing(a, b) {               // a,b = [lat, lon]
 
 ### 5.3 Vessel de-cluster — proximity-based, in screen-pixel space
 
-> **Status: not yet implemented.** Ships currently render on their true interpolated positions
-> (en-route vessels are spread across oceans, so overlap is rare so far). This is the design for
-> when vessels start to stack. The **container** spiral (§5.4) already uses this pixel-space model.
+> **Status: implemented**, as `spreadStackedVessels` in MapView.jsx — but by RELAXATION rather than
+> the spiral sketched below. See the note at the end of this section.
+>
+> It was shelved on the grounds that "en-route vessels are spread across oceans, so overlap is rare",
+> and that was true only while each ship sat at its own fraction of its own lane. Placing them at
+> `daysLeft × 620 km` from the next call (§5.1) removed exactly that accidental spread and put five
+> pairs on **identical** coordinates — structurally, because searoute lanes share network edges, so
+> two ships walking back the same distance from the same port land on the same node.
 
 > **This replaces the Leaflet `applyJitter`.** The original offset by *degrees* keyed on a
 > per-route-group `index`, so it only de-stacked ships that shared the *exact same route* and
@@ -328,6 +333,25 @@ spiral offset → unproject** → write feature. Bearing is taken from route dir
 the offset only nudges the icon a few px and never rotates it.
 
 Tunables: `CLUSTER_PX` (overlap threshold) and `RING_PX` (spread tightness).
+
+**What was actually built, and why it differs.** `spreadStackedVessels` reuses `relaxOverlaps`
+([declutter.js](src/map/declutter.js)) — the same function the port cards use — instead of the
+spiral above. Three reasons: it already handles **exact** coincidence, which is the case that
+occurs and the one that divides by zero if unguarded; it moves only what overlaps and only as far
+as needed, where a spiral fans every member of a cluster onto a ring even when two were already
+clear; and its even-packing advantage is for large *k*, while real clusters here are two and three.
+
+**The displacement moves the feature's GEOMETRY, not `icon-offset`.** The count badge rides
+`text-offset` in **ems** while an icon offset is in **px**, so offsetting the icon alone would leave
+the badge behind — which is the bug being fixed, not a fix for it. That bug is worth naming: with
+two hulls stacked, the badge on top belonged to one ship and the hull to another, so the map read
+"3 containers" over a vessel whose tray showed 1. Two true numbers, two different ships, presented
+as one.
+
+**Offsets do NOT vanish on zoom here, unlike the port cards.** That property depends on markers
+being *near but distinct*; no zoom separates two points at the same coordinate. Ships that collide
+exactly stay nudged apart at every zoom, which is the only honest way to draw two things in one
+place. Guarded by `npm run test:declutter`.
 
 ### 5.4 Port container cards — three isometric stacks per port
 Arrived containers are drawn as **one card per discharge port**, split into **three arms radiating

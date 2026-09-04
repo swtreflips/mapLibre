@@ -343,6 +343,82 @@ function syncPortCards(map, ports, cards, onPick) {
   applyPortDeclutter(map, ports, cards)
 }
 
+// Half the vessel icon, in CSS px, at icon-size 1.0. The stern-offset note above cites ~15 px for
+// the same icon at the same scale, and both are describing the distance from the hull's centre to
+// its end.
+const VESSEL_RADIUS_PX = 15
+
+/**
+ * Two ships in the same place are drawn as two ships.
+ *
+ * THIS BECAME NECESSARY THE DAY POSITION STOPPED BEING A TIME FRACTION. CLAUDE.md §5.3 designed it
+ * and shelved it — "en-route vessels are spread across oceans, so overlap is rare so far" — which
+ * was true while each ship sat at its own fraction of its own lane. Placing them all at
+ * `daysLeft x 620 km` from their next call removed exactly that accidental spread:
+ *
+ *     BAY BRIDGE        badge 1  [218.58, 45.90]
+ *     SEASPAN BRISBANE  badge 3  [218.58, 45.90]
+ *
+ * IDENTICAL, not merely close, and structurally so: searoute lanes share network edges, so two
+ * ships walking back the same distance from the same port arrive at the same node. Every pair
+ * sharing a destination and an ETA collides exactly. Five clusters did.
+ *
+ * The failure is nastier than a hidden marker. The hull on top belongs to one ship and the count
+ * badge to another, so the map reads "3 containers" over a vessel whose tray then shows 1 — two
+ * true numbers describing two different ships, presented as one.
+ *
+ * RELAXATION, NOT §5.3's GOLDEN-ANGLE SPIRAL, and declutter.js argues the other way — a spiral is
+ * fine for vessels because ships are interchangeable, where ports are named places whose relative
+ * bearing must survive. Three things decide it here. `relaxOverlaps` already handles EXACT
+ * coincidence, which is the case we actually have and the one that divides by zero if unguarded. It
+ * moves only what overlaps and only as far as needed, where a spiral fans every member of a cluster
+ * onto a ring even when two were already clear. And its even-packing advantage is for large k;
+ * these clusters are two and three.
+ *
+ * THE GEOMETRY MOVES, NOT `icon-offset`. The count badge rides `text-offset` in EMS while an icon
+ * offset is in PIXELS, so offsetting the icon alone would leave the badge behind — which is the bug
+ * being fixed, not a fix for it. Displacing the point moves hull, badge and click target together.
+ *
+ * Zoom-awareness is free, because overlap is a pixel phenomenon: the same geographic gap becomes
+ * more pixels as you zoom, the cluster resolves, and `relaxOverlaps` returns [0, 0] — so a ship
+ * sits on its true position the moment it can be told apart. `rebuild()` already re-runs on
+ * `zoomend`; panning cannot change the pixel distance between two points, so nothing else is
+ * needed.
+ */
+function spreadStackedVessels(map, features, byId) {
+  if (features.length < 2) return
+
+  // STABLE ORDER, because relaxOverlaps is deterministic only for a given input order — its own
+  // doc says so, and unsorted input would let two ships swap offsets between frames and jitter in
+  // the bad sense. The holder key is unique and does not change between refreshes.
+  const order = [...features].sort((a, b) =>
+    a.properties.holder < b.properties.holder ? -1 : a.properties.holder > b.properties.holder ? 1 : 0,
+  )
+
+  // A MIRROR of the layer's icon-size expression, via the same helper the dev HUD uses. A second
+  // copy of the size curve is how the hull and the spacing it is given drift apart.
+  const scale = interpolateStops(VESSEL_SCALE_STOPS, map.getZoom())
+  const radius = VESSEL_RADIUS_PX * scale
+
+  const points = order.map((f) => map.project(f.geometry.coordinates))
+  const offsets = relaxOverlaps(points, order.map(() => radius), DECLUTTER_GAP)
+
+  offsets.forEach(([dx, dy], i) => {
+    if (dx === 0 && dy === 0) return // untouched: this ship overlapped nothing
+    const f = order[i]
+    const p = points[i]
+    const moved = map.unproject([p.x + dx, p.y + dy])
+    f.geometry.coordinates = [moved.lng, moved.lat]
+
+    // The dashed track starts AT THE HULL. Left alone it would still start at the true position,
+    // which after a displacement is a visible few pixels away from the ship it belongs to.
+    const entry = byId.get(f.properties.holder)
+    if (entry?.remaining?.[0]?.length) {
+      entry.remaining = [[[moved.lng, moved.lat], ...entry.remaining[0].slice(1)], ...entry.remaining.slice(1)]
+    }
+  })
+}
+
 // `matchedIds` is null when no search filter is active, and a Set of shipment ids when one is.
 // Null and "the empty set" mean different things and must stay distinct: null is "no filter, draw
 // everything at full strength", empty is "a filter that matched nothing, dim the whole map".
@@ -390,6 +466,8 @@ function buildFeatures(shipments, routesByKey, railByKey, map, portPoints, match
       },
     })
   }
+
+  spreadStackedVessels(map, shipFeatures, byId)
 
   // THE INLAND LEG. Same maths as the vessel — a thing travelling a polyline between two dates —
   // so it reuses computeProgress and positionAtProgress rather than reimplementing them. What
