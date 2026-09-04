@@ -10,18 +10,19 @@
 
 .ccard {
   position: relative;
-  /* Do NOT let the tray shrink a card. The list scrolls; the cards keep their height.
-     Overflowing it squashes every child instead — which silently cut ~70px off each card here,
-     taking the bottom rows of the fact grid with it.
+  /* Do NOT let the tray's flex column shrink a card. Flex items default to flex-shrink: 1, so an
+     overflowing column squashes every child instead of scrolling — which silently cut ~70px off
+     each card here, taking the bottom rows of the fact grid with it. The list scrolls; the cards
+     keep their height.
 
-     TWO DECLARATIONS BECAUSE THE TRAY IS A GRID NOW, and each only covers one layout. `flex` is
-     inert on a grid item, so when .tray__list changed from a flex column to a grid the guard
-     quietly stopped existing and the squashing came straight back. `min-height` covers both, and
-     is what actually restores the floor: `overflow: hidden` below sets this box's automatic
-     minimum size to 0, so without an explicit minimum there is nothing to stop a constrained row
-     compressing it — and the same `overflow` then hides the evidence. */
+     NOTHING IS NEEDED FOR THE TWO-COLUMN GRID, and an attempt to add one made things worse. A
+     `min-height: min-content` was put here on the theory that `flex` is inert on a grid item and
+     the floor had to be restored some other way. A grid's `auto` rows already size to their
+     content, so it was never needed — and as an intrinsic minimum on a grid item it fought the
+     row sizing that was already correct: the card came out TALLER than its row, overflowed, and
+     the next row's card painted over the line items. A minimum can only grow the card, which is
+     exactly the problem when the row it sits in was measured without it. */
   flex: 0 0 auto;
-  min-height: min-content;
   /* Clips the status bar to the rounded corners. Combined with the shrink above it is safe;
      without it, it would have hidden the squashing rather than caused it. */
   overflow: hidden;

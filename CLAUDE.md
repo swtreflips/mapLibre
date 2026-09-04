@@ -702,8 +702,15 @@ still drag left rather than in the last few pixels.
   the guard that stops an overflowing tray squashing ~70px off every card, with `overflow: hidden`
   then hiding the evidence — and so reintroduced that bug in the **default** state, which every user
   is in, to serve a case that only exists past 660px. The rule is: change the layout only where the
-  feature is. `.ccard` also carries `min-height: min-content` for the grid path, which is safe
-  everywhere because a minimum can only make a card taller, never clip it.
+  feature is — `.ccard` and the one-column list are now byte-for-byte what they were before this
+  feature existed.
+- **The grid needed no card-side guard at all.** A `min-height: min-content` was added to `.ccard`
+  on the theory that `flex: 0 0 auto` is inert on a grid item and the floor had to be restored some
+  other way. A grid's `auto` rows already size to their content, so it was never needed — and as an
+  intrinsic minimum on a grid item it fought the row sizing that was already correct: the card came
+  out **taller than its row**, overflowed it, and the next row's card painted over the line items.
+  "A minimum can only grow the card" was true and beside the point; growing it past a row measured
+  without it is precisely the failure.
 - **The drag writes to the DOM, not to state.** `Sidebar` renders every visible container card;
   setState on each `pointermove` would re-render that list 60×/second for a number only CSS reads.
   The handler sets the property on the node through a ref; state and `localStorage` are written
