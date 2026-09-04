@@ -288,6 +288,45 @@ Angeles → Oakland (777 km, 8 days to run): it is simply still at Los Angeles, 
 right — that is date arithmetic. Only the icon moved. It remains the fallback for a leg with no end
 date, where there is no remaining time to measure. Guarded by `npm run test:grouping`.
 
+#### The anchorage — a hull is never drawn ON a port
+
+**`ANCHORAGE_KM = 150`, clamped at BOTH ends of every leg.** A port's container card is anchored at
+exactly the coordinate its polyline terminates on, so a ship at 100% and the card are two markers on
+one point — and the card, a DOM marker, takes every click. The two states above are precisely the
+ones that land there: an overdue or held ship (progress `1`) on its discharge card, and a
+slack-held or just-sailed ship (progress `0`) on its origin card. Five of 23 sit at an origin.
+
+It is not a fiction. A box overdue with no `actual_portdate` is a ship nothing has reported
+alongside, so drawing it at anchor off the port describes what is known better than drawing it on
+the berth.
+
+**A fixed distance, not a fraction**, for the reason `RAIL_START`'s 3% cannot be borrowed: ocean legs
+run 721–20,290 km, a 28-fold spread, so any fraction is too little at one end and dishonest at the
+other.
+
+**150 km is a pixel budget, not a nautical one**, and this is where the original 25 km failed. At
+Los Angeles' latitude km-per-pixel is `64.9 / 2^zoom`, against a card of ~27 px collision radius
+(`CARD_BASE_PX 64 × CARD_RADIUS_FACTOR 0.42`) plus ~15 px of hull — about 45 px of clearance wanted:
+
+| zoom | km/px | 25 km | 150 km |
+|---|---|---|---|
+| 3 | 8.11 | 3 px | 18 px |
+| 4 | 4.06 | 6 px | 37 px |
+| 5 | 2.03 | 12 px | 74 px |
+| 7 | 0.51 | 49 px | **296 px** |
+
+So 25 km separated nothing below about z7, which is not where this map is read. **The cost is the
+bottom row**: past z7 the hull sits ~300 px offshore and reads as detached from its port. That is
+the price of a fixed distance and it is the same trade the `RAIL_START` note in
+[MapView.jsx](src/components/MapView.jsx) already writes down — a geographic offset cannot track a
+fixed-pixel card at every zoom. The alternative is nudging in screen space against the cards, which
+was considered and rejected: hull-to-hull collisions created by the standoff are already handled by
+`spreadStackedVessels` (§5.3), and that is the only declutter this map does.
+
+**A leg under `2 × ANCHORAGE_KM` pins to its midpoint** — below 300 km the floor and the cap cross
+and there is no band left. Still clear of both cards, and no less true than either end, since a leg
+that short has no honest third answer anyway (see the binary note above).
+
 #### A call is not made until something says it was
 
 **A leg is only left behind once the call that ENDS it reports an actual date that has arrived.**
@@ -330,7 +369,8 @@ call, which is a no-op on the load side today and locks the invariant in.
 reads "DEPARTED 30 Jul · ETA 3 Sep" against a past date and falls under the existing **Overdue**
 chip. A held ship and a late ship are the same claim: we expected it there and nothing says it is.
 Nothing else changes — `progressByTimeLeft` already returns `1` once `daysLeft <= 0`, so a held ship
-parks on the port exactly as an overdue single-leg voyage always has.
+comes to rest at the port exactly as an overdue single-leg voyage always has, and the anchorage
+below then stands it off.
 
 **Legs built by hand need `endActual`.** A missing field reads as unconfirmed and freezes the ship
 at its first call, which is correct as a default and a trap for fixtures. `npm run test:grouping`

@@ -252,6 +252,63 @@ function progressByTimeLeft(fallback, leg, today) {
 
 
 /**
+ * The anchorage. A hull is never drawn ON a port — it stands 150 km off BOTH ends of its leg.
+ *
+ * A ship at 100% of its polyline is on its discharge port, which is exactly where that port's card
+ * is drawn: two markers on one point, and the top one takes every click. It is not a fiction to
+ * back it off — a box that is overdue with no `actual_portdate` is a ship that has not been
+ * reported alongside, so drawing it at anchor off the port is a better description of what is known
+ * than drawing it on the berth.
+ *
+ * BOTH ENDS, because the collision is symmetric and only the discharge half was ever guarded. A
+ * leg's slack is spent at its ORIGIN (§5.1: five of 23 sailings sit there), and a ship at 0% is on
+ * its origin card in exactly the way an overdue one is on its discharge card. The floor is the same
+ * distance as the cap for the same reason.
+ *
+ * A FIXED DISTANCE, NOT A FRACTION, and that is the whole design. The rail leg dodges the same
+ * collision with `RAIL_START`, 3% along its track, which works because rail lanes are all much of a
+ * muchness. Ocean legs are not: measured across the fleet they run 721 km to 20,290 km, a 28-fold
+ * spread, so 0.3% is 2 km on the short one and 61 km on the long one — too little to separate
+ * anything at one end, too much to be honest at the other. 150 km is 150 km on every lane.
+ *
+ * 150 KM IS A PIXEL BUDGET, NOT A NAUTICAL ONE, and this is where the previous 25 km failed. At
+ * Los Angeles' latitude km-per-pixel is `64.9 / 2^zoom`, and the thing being dodged is a port card
+ * of ~27 px collision radius (CARD_BASE_PX 64 x CARD_RADIUS_FACTOR 0.42) plus ~15 px of hull — call
+ * it 45 px of clearance wanted:
+ *
+ *     zoom      km/px      25 km      150 km
+ *       3        8.11       3 px       18 px
+ *       4        4.06       6 px       37 px
+ *       5        2.03      12 px       74 px
+ *       7        0.51      49 px      296 px
+ *
+ * So 25 km only separated anything past about z7, which is not where this map is read. The cost is
+ * the other end of that column: at z7+ a hull sits ~300 px offshore and reads as detached from the
+ * port it belongs to. That is the price of a fixed distance, and it is the same trade MapView's
+ * RAIL_START note already writes down — a geographic offset cannot track a fixed-pixel card at
+ * every zoom, and the alternative is nudging in screen space against the cards, which is a
+ * different design.
+ *
+ * A CLAMP, so it only binds where the problem is. Every ship in transit stays exactly where the
+ * time model puts it; only the ones that would otherwise sit on a card are moved.
+ */
+const ANCHORAGE_KM = 150
+
+/**
+ * The band of a leg a hull may be drawn in, as `[floor, cap]` fractions.
+ *
+ * A LEG TOO SHORT TO STAND OFF WITHIN COLLAPSES TO ITS MIDPOINT. Below `2 x ANCHORAGE_KM` the two
+ * bounds cross and there is no band left, so the honest answer is the middle — still clear of both
+ * cards, and no less true than either end: §5.1 already notes that a leg shorter than a day's
+ * steaming has no third answer, and at that length the midpoint IS the standoff.
+ */
+function anchorageBand(km) {
+  if (km <= 2 * ANCHORAGE_KM) return [0.5, 0.5]
+  const f = ANCHORAGE_KM / km
+  return [f, 1 - f]
+}
+
+/**
  * Where the ship is, which way it points, and the track it has left.
  *
  * Reuses computeProgress and positionAtProgress unchanged — one leg at a time is the same problem
@@ -266,7 +323,12 @@ export function positionOnItinerary(legs, today = new Date()) {
   const active = activeLegAt(legs, today)
   if (!active) return null
   const coords = active.leg.coords
-  const { pos, cut } = positionAtProgress(coords, progressByTimeLeft(active.progress, active.leg, today))
+  const [floor, cap] = anchorageBand(polylineKm(coords))
+  const progress = Math.min(
+    Math.max(progressByTimeLeft(active.progress, active.leg, today), floor),
+    cap,
+  )
+  const { pos, cut } = positionAtProgress(coords, progress)
   if (!pos) return null
 
   // The heading. At the end of a leg the next vertex IS the ship, and computeBearing of a point

@@ -48,6 +48,19 @@ const check = (name, got, want) => {
   console.log(`${ok ? 'ok  ' : 'FAIL'}  ${name}${ok ? '' : `\n        got ${got}, want ${want}`}`)
 }
 
+// A HULL IS NEVER DRAWN ON A PORT. It stands `ANCHORAGE_KM` off both ends of its leg, because the
+// port's container card is anchored at exactly the coordinate the polyline terminates on — two
+// markers on one point, and the card takes every click. See the anchorage note in vesselMath.
+//
+// A BAND RATHER THAN AN EQUALITY, and the asymmetry is the reason: the 150 km is walked ALONG THE
+// POLYLINE, so any bend in the approach makes the straight-line distance back to the port come in
+// under it. It can never come in over.
+const STANDOFF_KM = 150
+const standsOff = (pos, port) => {
+  const d = haversine(pos, port)
+  return d > STANDOFF_KM * 0.8 && d <= STANDOFF_KM + 1
+}
+
 // Lanes with real coordinates, so nothing is dropped for want of a polyline.
 //
 // THE PORT-TO-PORT ONES MATTER AS MUCH AS THE OCEAN ONES NOW. A sailing that calls twice needs a
@@ -487,10 +500,10 @@ console.log('\nposition along the itinerary\n')
   }
 
   // Past every call, which is reachable while a box is aboard with no arrival reported. Held at
-  // the last port rather than extrapolated off the end of the line.
+  // the last port rather than extrapolated off the end of the line — and standing off it, not on it.
   const after = positionOnItinerary(landedNY, new Date(2099, 11, 1))
-  check('past the last call, held at the final port',
-    JSON.stringify(after.pos), JSON.stringify([-76.3, 36.9]))
+  check('past the last call, held off the final port',
+    standsOff(after.pos, [-76.3, 36.9]), true)
 }
 
 // ── A CALL IS NOT MADE UNTIL SOMETHING SAYS IT WAS ─────────────────────────────────────
@@ -519,7 +532,7 @@ console.log('\nthe ship waits for evidence that it called\n')
   const unconfirmed = legsOf([drop({ shipment: 'A' }), drop({ shipment: 'B', ...NORFOLK })])
   const held = positionOnItinerary(unconfirmed, at(2099, 9, 8)) // 8 Oct, NY was due 4 Oct
   check('an unreported call holds the ship on the leg into it', held.index, 0)
-  check('...parked on the port itself', Math.round(haversine(held.pos, NY)), 0)
+  check('...standing off the port it has not reached', standsOff(held.pos, NY), true)
   // The user-visible half: the run it still owes AND the leg beyond it both stay on screen.
   check('...still drawing both lines', held.remaining.length, 2)
 
@@ -586,8 +599,8 @@ console.log('\nthe ship waits for evidence that it called\n')
   // A SINGLE-LEG VOYAGE IS UNTOUCHED. One overdue leg still parks at its port, which is what it
   // did before any of this existed — the rule only decides which of SEVERAL legs is current.
   const solo = legsOf([drop({ shipment: 'A' })])
-  check('a single overdue leg still sits at its port',
-    Math.round(haversine(positionOnItinerary(solo, at(2099, 11, 1)).pos, NY)), 0)
+  check('a single overdue leg still holds at its port',
+    standsOff(positionOnItinerary(solo, at(2099, 11, 1)).pos, NY), true)
 }
 
 // ── NOT SAILED YET: the origin card ────────────────────────────────────────────────────
@@ -702,9 +715,12 @@ console.log('\ndistance tracks days, not schedule padding\n')
   check('slack holds a ship mid-route, not at its origin',
     JSON.stringify(slack.pos), JSON.stringify([20, 0]))
 
-  // Departed today: at the origin, and only then.
+  // Departed today: at the origin end of the leg — but STANDING OFF it, not on it. The time model
+  // returns 0 here and the anchorage floor lifts it clear, which is the mirror of what the cap does
+  // to an overdue ship at the far end. Without it the hull sits on the origin card's own coordinate.
   const justSailed = positionOnItinerary([{ from: 'A', to: 'Z', coords: [[0, 0], [40, 0]], start: day(0), end: day(40) }])
-  check('a ship that sailed today IS at its origin', JSON.stringify(justSailed.pos), JSON.stringify([0, 0]))
+  check('a ship that sailed today stands off its origin', standsOff(justSailed.pos, [0, 0]), true)
+  check('...on the outbound side of it, not past the midpoint', justSailed.pos[0] > 0 && justSailed.pos[0] < 20, true)
 
   // THE HANDOVER MUST NOT JUMP. Computed independently the outbound and inbound rules disagree —
   // measured 7,600 km apart at the crossover on one lane — which is why both cap at half the leg
@@ -721,9 +737,24 @@ console.log('\ndistance tracks days, not schedule padding\n')
   check('no day of the voyage moves the ship more than a day of steaming', worst <= 640, true,
     `worst single-day step ${Math.round(worst)} km`)
 
-  // Overdue: the ETA passed with no arrival reported. At the port is the honest place for it.
+  // Overdue: the ETA passed with no arrival reported. Off the port is the honest place for it — a
+  // ship nothing has reported alongside is a ship at anchor, not a ship on the berth.
   const late = positionOnItinerary([{ from: 'A', to: 'Z', coords: [[0, 0], [40, 0]], start: day(-30), end: day(-3) }])
-  check('past its ETA -> at the port', JSON.stringify(late.pos), JSON.stringify([40, 0]))
+  check('past its ETA -> standing off the port', standsOff(late.pos, [40, 0]), true)
+
+  // A LEG TOO SHORT TO STAND OFF WITHIN PINS TO ITS MIDPOINT. Below 2 x ANCHORAGE_KM the floor and
+  // the cap cross, and the branch that catches it is the one that divides badly if it does not. 2°
+  // of longitude at the equator is ~222 km, so both bounds want more room than the leg has.
+  const tiny = [[0, 0], [2, 0]]
+  const short = positionOnItinerary([{ from: 'A', to: 'Z', coords: tiny, start: day(-30), end: day(-3) }])
+  check('a leg too short to stand off within pins to its midpoint',
+    JSON.stringify(short.pos), JSON.stringify([1, 0]))
+  // Which is the whole point of the midpoint rule: clear of BOTH cards, even though it is under the
+  // standoff from each. Nothing can do better on a leg this short.
+  check('...which is clear of both its ports', Math.min(
+    Math.round(haversine(short.pos, tiny[0])),
+    Math.round(haversine(short.pos, tiny[1])),
+  ) > 100, true)
 }
 
 // ── vesselSplits: the diagnostic that replaced etaDisagreements ─────────────────────────
