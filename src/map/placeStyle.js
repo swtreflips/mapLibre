@@ -53,9 +53,10 @@ export const placeDotPaint = (palette) => ({
  * dark — so a kind that does not name itself falls through to the LOUDEST treatment on the map,
  * which is the exact opposite of what a background tier wants.
  *
- * `symbol-sort-key` is `minzoom`, which is what makes the tiers rank themselves: every existing tag
- * sorts <= 4 and every `ts_port` >= 6, so a load port keeps its name in a collision and the
- * transshipment port beside it drops to a bare dot. No priority field to maintain.
+ * `symbol-sort-key` is `sort`, NOT `minzoom`. The two were the same number while the tiers sat in
+ * different bands, but transshipment ports now share a band with the smaller US seaports, and a tie
+ * there would be broken arbitrarily — sometimes dropping the port the work is about. `sort` carries
+ * a fixed offset for that tier (src/data/places.js), so ranking cannot follow the band into a tie.
  *
  * The non-`ts_port` size curve is unchanged: 11 at z3 rising to 13 at z7, flat above. The z6 stop
  * carries its interpolated value (12.5) exactly so inserting it changes nothing.
@@ -85,7 +86,7 @@ export const placeLabelLayout = (fontRegular, fontBold) => ({
   // Let a crowded coast drop names instead of stacking them.
   'text-allow-overlap': false,
   'text-optional': true,
-  'symbol-sort-key': ['get', 'minzoom'],
+  'symbol-sort-key': ['get', 'sort'],
 })
 
 export const placeLabelPaint = (palette) => ({

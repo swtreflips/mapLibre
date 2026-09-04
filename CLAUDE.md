@@ -1197,14 +1197,19 @@ colour and weight across **three tiers**.
 |---|---|---|---|---|
 | US ports & inland facilities | `us_port` / `rail_yard` | `us_ports` ([useUsPorts.js](src/hooks/useUsPorts.js)) | `type in ('P','I')`, **live** — minus `US_PORT_EXCLUSIONS` | z3–4 |
 | International load ports | `intl_port` | `world_ports` ([useLoadingPorts.js](src/hooks/useLoadingPorts.js)) | **fixed** list `INTL_PORTS` | z3–4 |
-| Transshipment ports | `ts_port` | `world_ports` (same hook, one query) | **fixed** list `TRANSSHIPMENT_PORTS` | z6–7 |
+| Transshipment ports | `ts_port` | `world_ports` (same hook, one query) | **fixed** list `TRANSSHIPMENT_PORTS` | z4–5 |
 
-**The third tier is background, and two mechanisms keep it there** — neither a special case in the
-render. It does not exist below **z6**, so the world and ocean-basin views are byte-for-byte what
-they were. And `symbol-sort-key` IS `minzoom`, so collision resolves in favour of the earlier band
-automatically: every existing tag sorts ≤ 4 and every `ts_port` ≥ 6, so a load port keeps its name
-and the transshipment port beside it drops to a bare dot. There is no priority field to maintain.
-It is also painted quieter — Google's tertiary grey, a smaller ring, ~1.5px smaller text.
+**The third tier is background, and `sort` is what keeps it there.** It arrives at Prince Rupert's
+band (type P size M → z4), so it shares a band with the smaller US seaports rather than sitting far
+behind them. It is painted quieter — Google's tertiary grey, a smaller ring, ~1.5px smaller text.
+
+**`symbol-sort-key` is `sort`, NOT `minzoom`, and the two coming apart is the point.** They were the
+same number while the tiers occupied separate bands, and that ranked them for free. Overlapping
+bands mean a tie, which MapLibre breaks arbitrarily — sometimes dropping the port the work is about
+in favour of one a box merely passes through. `sort` carries a fixed `TS_SORT_OFFSET` (100) for the
+tier, so **every existing tag sorts ≤ 4 and every `ts_port` ≥ 104**: a load port keeps its name in a
+collision whatever band either is staged into. Move `TS_BAND_START` freely; the ranking cannot
+follow it into a tie.
 
 Note the label layer's `match` expressions **fall through to the US styling** (bold, dark). A new
 kind that forgets to name itself in all three — font, size, colour — gets the loudest treatment on

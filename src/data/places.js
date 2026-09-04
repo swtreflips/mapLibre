@@ -78,11 +78,10 @@ const INTL_MINZOOM = 3
 //
 // TWO MECHANISMS KEEP THEM SUBORDINATE, and neither is a special case in the render:
 //
-//   1. A LATE minzoom. They do not exist below TS_BAND_START, so the world view and the ocean-basin
-//      views stay exactly as they are today. You have to be looking at a region before they appear.
-//   2. `symbol-sort-key` IS that minzoom (MapView's place-labels layer). Collision therefore
-//      resolves in favour of the earlier band automatically — a load port keeps its name and the
-//      transshipment port beside it drops to a bare dot, with no priority field to maintain.
+//   1. A later minzoom, though only slightly now: TS_BAND_START matches Prince Rupert's band, so
+//      they arrive with the smaller US seaports rather than with the big gateways.
+//   2. A `sort` that is always behind every other tier, whatever band they are staged into. That
+//      used to be the minzoom itself, which only ranked them while the bands did not overlap.
 //
 // Set from the distinct `schedules.ts_ports` values, minus anything already drawn as a US port or
 // an INTL_PORT, so no place is listed twice. Curated rather than fetched: `schedules` is not
@@ -99,7 +98,24 @@ const INTL_MINZOOM = 3
 // NOTE THESE HAVE NO ROUTE GEOMETRY. `polylines/populate_port_matrix.py` does not cover them, so a
 // sailing calling at one would truncate its itinerary. That is fine while they are only labels; if
 // they ever become ports a vessel is drawn calling at, they need to go into that matrix too.
-const TS_BAND_START = 6
+// Prince Rupert, BC is type P size M, so `placeMinzoom` puts it at 4 — and that is the band this
+// tier was asked to match. The size split still applies within it, so the 41 large ports land
+// exactly with Prince Rupert and the 6 medium ones a zoom later, the same way `us_ports` stages its
+// own smaller members behind its larger ones.
+const TS_BAND_START = 4
+
+// COLLISION PRIORITY IS NO LONGER THE SAME NUMBER AS VISIBILITY, and it stopped being safe to
+// conflate them the moment this tier moved into the same band as everything else.
+//
+// `symbol-sort-key` used to be `minzoom` outright, which ranked the tiers for free while they
+// occupied different bands (everything <= 4, transshipment >= 6). At 4-5 they now overlap: a large
+// transshipment port and a medium load port would both sort 4 and MapLibre would break the tie
+// arbitrarily — sometimes dropping the port the work is actually about.
+//
+// So a feature carries `sort` as well as `minzoom`. They are equal for the first two tiers; the
+// offset pushes transshipment ports behind every one of them regardless of band. Change
+// TS_BAND_START freely — the ranking cannot follow it into a tie.
+const TS_SORT_OFFSET = 100
 
 export const TRANSSHIPMENT_PORTS = [
   'Altamira, Mexico',
@@ -214,11 +230,13 @@ export const US_PORT_EXCLUSIONS = new Set(
 export const isExcludedUsPort = (row) =>
   US_PORT_EXCLUSIONS.has((row.canonical_name || '').trim().toLowerCase())
 
-const feature = ({ id, name, kind, minzoom, coordinates, portKey }) => ({
+// `sort` defaults to `minzoom`, which is what the first two tiers want: staged by importance and
+// ranked by the same measure. Only the transshipment tier passes its own.
+const feature = ({ id, name, kind, minzoom, coordinates, portKey, sort }) => ({
   type: 'Feature',
   id,
   geometry: { type: 'Point', coordinates },
-  properties: { id, name, kind, minzoom, portKey },
+  properties: { id, name, kind, minzoom, portKey, sort: sort ?? minzoom },
 })
 
 // A us_ports row -> map feature, plotted at the table's own surveyed lat/lng.
@@ -265,6 +283,8 @@ export function tsPortFeature(row) {
     name,
     kind: 'ts_port',
     minzoom: TS_BAND_START + (row.size === 'L' ? 0 : 1),
+    // Behind every other tier in a collision, whatever band this one is staged into.
+    sort: TS_BAND_START + (row.size === 'L' ? 0 : 1) + TS_SORT_OFFSET,
     coordinates: [row.longitude, row.latitude],
     portKey: normalizeKey(name),
   })

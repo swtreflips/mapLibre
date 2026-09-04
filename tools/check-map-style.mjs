@@ -92,6 +92,20 @@ console.log('\nthe zoom-nesting rule\n')
     r2.result === 'success' ? '' : r2.value.map((e) => e.message).join('\n        '))
 }
 
+// ── Priority must not be read off the visibility band ────────────────────────────────
+//
+// `symbol-sort-key` was `minzoom` while the tiers occupied different bands, and that ranked them
+// for free. Transshipment ports now share a band with the smaller US seaports, so the two numbers
+// had to come apart: a tie on `minzoom` is broken arbitrarily by MapLibre, which would sometimes
+// drop the port the work is actually about in favour of one a box merely passes through.
+console.log('\nsort key is independent of the band\n')
+{
+  const layout = placeLabelLayout(FONT_REGULAR, FONT_BOLD)
+  check("symbol-sort-key reads 'sort', not 'minzoom'",
+    JSON.stringify(layout['symbol-sort-key']) === JSON.stringify(['get', 'sort']),
+    `got ${JSON.stringify(layout['symbol-sort-key'])}`)
+}
+
 // ── Every kind must be named where the fallback is the loud one ──────────────────────
 //
 // `text-font`, `text-size` and `text-color` all fall through to the US styling — bold and dark. A
