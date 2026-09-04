@@ -480,7 +480,7 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
   // map — the same failure Schedules shipped with. It now has a screen.
   const { routesByKey, loading, error } = useRoutes()
   const { usPorts } = useUsPorts()
-  const { intlPorts } = useLoadingPorts()
+  const { intlPorts, tsPorts } = useLoadingPorts()
   // Only the rail lanes this data actually uses. The table holds 540 of them at ~15 KB each, so
   // fetching the lot would be ~8 MB to draw the one or two that are in play.
   const railLanes = useMemo(
@@ -619,11 +619,19 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
         paint: {
           // White fill + coloured stroke reads as a hollow ring at these radii.
           'circle-color': palette.dotFill,
-          'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 2.5, 6, 4],
-          'circle-stroke-width': 1.4,
+          // Transshipment ports get a smaller ring on a flatter curve. They exist for geographic
+          // awareness, so they must read as background at every zoom they appear at.
+          'circle-radius': [
+            'match',
+            ['get', 'kind'],
+            'ts_port', ['interpolate', ['linear'], ['zoom'], 6, 2, 10, 2.8],
+            ['interpolate', ['linear'], ['zoom'], 2, 2.5, 6, 4],
+          ],
+          'circle-stroke-width': ['match', ['get', 'kind'], 'ts_port', 1, 1.4],
           'circle-stroke-color': [
             'match',
             ['get', 'kind'],
+            'ts_port', palette.dotFaint,
             'intl_port', palette.dotIntl,
             palette.dotUs,
           ],
@@ -811,13 +819,22 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
         filter: PLACE_ZOOM_FILTER,
         layout: {
           'text-field': ['get', 'name'],
+          // EVERY match here needs the third kind spelled out. The fallback arm is the US styling
+          // — bold, dark — so a kind that is not named falls through to the LOUDEST treatment,
+          // which is the opposite of what a background tier wants.
           'text-font': [
             'match',
             ['get', 'kind'],
+            'ts_port', ['literal', FONT_REGULAR],
             'intl_port', ['literal', FONT_REGULAR],
             ['literal', FONT_BOLD],
           ],
-          'text-size': ['interpolate', ['linear'], ['zoom'], 3, 11, 7, 13],
+          'text-size': [
+            'match',
+            ['get', 'kind'],
+            'ts_port', ['interpolate', ['linear'], ['zoom'], 6, 9.5, 10, 11],
+            ['interpolate', ['linear'], ['zoom'], 3, 11, 7, 13],
+          ],
           'text-anchor': 'left',
           'text-offset': [0.7, 0],
           'text-letter-spacing': 0.01,
@@ -833,6 +850,7 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
           'text-color': [
             'match',
             ['get', 'kind'],
+            'ts_port', palette.labelFaint,
             'intl_port', palette.labelIntl,
             palette.labelUs,
           ],
@@ -917,21 +935,24 @@ export default function MapView({ shipments, onSelect, matchedIds = null }) {
   }, [])
 
   // --- Swap in the ports once Supabase answers. ---
-  // Both sources feed one `places` source, and they resolve independently, so this reruns on
-  // either and rebuilds from whatever has arrived. Separate from the vessel effect below: places
+  // All three tiers feed one `places` source, and they resolve independently, so this reruns on
+  // any of them and rebuilds from whatever has arrived. Separate from the vessel effect below: places
   // are static reference geometry with no projection-dependent maths, so they never need
   // recomputing on zoomend.
   useEffect(() => {
     const map = mapRef.current
-    if (!mapReady || !map || (!usPorts && !intlPorts)) return
-    map.getSource('places')?.setData(buildPlacesFC({ usPorts, intlPorts }))
-  }, [mapReady, usPorts, intlPorts])
+    if (!mapReady || !map || (!usPorts && !intlPorts && !tsPorts)) return
+    map.getSource('places')?.setData(buildPlacesFC({ usPorts, intlPorts, tsPorts }))
+  }, [mapReady, usPorts, intlPorts, tsPorts])
 
 
   // Where the port cards get anchored: the ports' own coordinates, the same ones the labels above
   // are drawn at. Memoized because it is a dependency of the rebuild effect — rebuilt inline it
   // would be a new object every render and re-run the whole vessel pass on each one.
-  const portPoints = useMemo(() => portPointsByKey({ usPorts, intlPorts }), [usPorts, intlPorts])
+  const portPoints = useMemo(
+    () => portPointsByKey({ usPorts, intlPorts, tsPorts }),
+    [usPorts, intlPorts, tsPorts],
+  )
 
 
   // --- Build / refresh positions when data is ready (no animation; CLAUDE.md §6). ---

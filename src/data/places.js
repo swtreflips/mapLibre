@@ -70,6 +70,87 @@ const placeMinzoom = (row) => minzoomFor(row.type) + (row.size === 'L' ? 0 : 1)
 // world_ports splits the band the same way it does for US ports.
 const INTL_MINZOOM = 3
 
+// ── The third tier: transshipment ports ──────────────────────────────────────────────
+//
+// Places a box PASSES THROUGH rather than starts or ends at. They are on the map for geographic
+// awareness only — "the Ningbo leg goes there" — and they must never compete with the ports the
+// work is actually about.
+//
+// TWO MECHANISMS KEEP THEM SUBORDINATE, and neither is a special case in the render:
+//
+//   1. A LATE minzoom. They do not exist below TS_BAND_START, so the world view and the ocean-basin
+//      views stay exactly as they are today. You have to be looking at a region before they appear.
+//   2. `symbol-sort-key` IS that minzoom (MapView's place-labels layer). Collision therefore
+//      resolves in favour of the earlier band automatically — a load port keeps its name and the
+//      transshipment port beside it drops to a bare dot, with no priority field to maintain.
+//
+// Set from the distinct `schedules.ts_ports` values, minus anything already drawn as a US port or
+// an INTL_PORT, so no place is listed twice. Curated rather than fetched: `schedules` is not
+// readable with the anon key by design (CLAUDE.md §15), and a frozen list is the same stance the
+// international ports take. Re-derive with:
+//
+//   with ts as (select distinct jsonb_array_elements_text(ts_ports::jsonb) as port
+//               from schedules where ts_ports is not null)
+//   select w.canonical_name from ts join world_ports w on w.canonical_name = ts.port
+//    where ts.port not in (<INTL_PORTS>)
+//      and lower(trim(ts.port)) not in (select lower(trim(canonical_name)) from us_ports)
+//    order by 1;
+//
+// NOTE THESE HAVE NO ROUTE GEOMETRY. `polylines/populate_port_matrix.py` does not cover them, so a
+// sailing calling at one would truncate its itinerary. That is fine while they are only labels; if
+// they ever become ports a vessel is drawn calling at, they need to go into that matrix too.
+const TS_BAND_START = 6
+
+export const TRANSSHIPMENT_PORTS = [
+  'Altamira, Mexico',
+  'Antwerp, Belgium',
+  'Balboa, Panama',
+  'Barcelona, Spain',
+  'Brisbane, Australia',
+  'Busan, Republic Of Korea',
+  'Callao, Peru',
+  'Cochin, India',
+  'Colombo, Sri Lanka',
+  'Colon East, Panama',
+  'Colon, Argentina',
+  'Corinto, Nicaragua',
+  'Cristobal, Panama',
+  'Damietta, Egypt',
+  'Freeport, Bahamas',
+  'Fujairah, United Arab Emirates',
+  'Hong Kong, Hong Kong',
+  'Jeddah, Saudi Arabia',
+  'Kaohsiung, Taiwan',
+  'Kingston, Jamaica',
+  'Kobe, Japan',
+  'Lazaro Cardenas, Mexico',
+  'Le Havre, France',
+  'Manzanillo, Mexico',
+  'Manzanillo, Panama',
+  'Melbourne, Australia',
+  'Nansha, China',
+  'Ningbo, China',
+  'Port Klang, Malaysia',
+  'Rio Grande, Brazil',
+  'Salalah, Oman',
+  'Shanghai, China',
+  'Shekou, China',
+  'Sines, Portugal',
+  'Singapore, Singapore',
+  'Sohar, Oman',
+  'Sydney, Australia',
+  'Taipei, Taiwan',
+  'Tanger Med, Morocco',
+  'Tanjung Pelepas, Malaysia',
+  'Tauranga, New Zealand',
+  'Tema, Ghana',
+  'Tuticorin, India',
+  'Valencia, Spain',
+  'Xiamen, China',
+  'Yangpu, China',
+  'Yantian, China',
+]
+
 // ── The curated international list ───────────────────────────────────────────────────
 //
 // These are `world_ports.canonical_name` values, and they must match EXACTLY — the lookup is an
@@ -174,12 +255,32 @@ export function intlPortFeature(row) {
   })
 }
 
-// Merge both database sources into the one FeatureCollection the `places` source consumes.
-// Either side may still be null while its fetch is in flight; the map just shows fewer places.
-export function buildPlacesFC({ usPorts, intlPorts } = {}) {
+// A world_ports row -> a THIRD-TIER map feature: somewhere a box passes through. Identical to
+// intlPortFeature but for the kind and the band, which is the whole point — what separates the two
+// tiers is staging and styling, not a different kind of thing.
+export function tsPortFeature(row) {
+  const name = row.canonical_name || row.unlocode
+  return feature({
+    id: `ts:${row.canonical_name}`,
+    name,
+    kind: 'ts_port',
+    minzoom: TS_BAND_START + (row.size === 'L' ? 0 : 1),
+    coordinates: [row.longitude, row.latitude],
+    portKey: normalizeKey(name),
+  })
+}
+
+// Merge the database sources into the one FeatureCollection the `places` source consumes.
+// Any side may still be null while its fetch is in flight; the map just shows fewer places.
+//
+// TRANSSHIPMENT PORTS GO IN FIRST, so the later spreads win any duplicate `portKey` in
+// portPointsByKey. They are the least authoritative of the three and must never shadow a load port
+// or a US port that happens to share a name.
+export function buildPlacesFC({ usPorts, intlPorts, tsPorts } = {}) {
   return {
     type: 'FeatureCollection',
     features: [
+      ...(tsPorts ?? []).map(tsPortFeature),
       ...(intlPorts ?? []).map(intlPortFeature),
       ...(usPorts ?? []).filter((r) => !isExcludedUsPort(r)).map(usPortFeature),
     ],

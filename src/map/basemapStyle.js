@@ -62,6 +62,9 @@ const GOOGLEISH = {
   roadCase: '#ded9cf',
   labelPrimary: '#3c4043', // Google's primary label grey
   labelSecondary: '#5f6368', // Google's secondary label grey
+  // A third step down, for the transshipment tier (src/data/places.js). Places a box only passes
+  // through: present for geographic awareness, and never competing with a port the work is about.
+  labelTertiary: '#80868b', // Google's tertiary label grey
   // The vessel hull's outline, from assets/vessel.svg. Lives here as well so the count badge's
   // ring and numeral share ONE source of truth with the icon they sit on — if the ship's outline
   // is ever recoloured, the badge follows instead of quietly drifting out of family.
@@ -83,6 +86,8 @@ export const mapPalette = () => ({
   labelUs: GOOGLEISH.labelPrimary,
   labelIntl: GOOGLEISH.labelSecondary,
   dotIntl: GOOGLEISH.labelSecondary,
+  labelFaint: GOOGLEISH.labelTertiary,
+  dotFaint: GOOGLEISH.labelTertiary,
   dotFill: '#ffffff',
   vesselOutline: GOOGLEISH.vesselOutline,
   railInk: GOOGLEISH.railInk,

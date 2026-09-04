@@ -1191,12 +1191,28 @@ tokens are space-separated **RGB channels** (`"173 85 42"`) that MapLibre cannot
 
 The only text on the map is the port list, and **all of it is database-driven** — nothing is
 hand-typed. [src/data/places.js](src/data/places.js) shapes the rows into features; `kind` drives
-colour and weight (US accented + bold, international grey + regular).
+colour and weight across **three tiers**.
 
-| places | source | selection |
-|---|---|---|
-| US ports & inland facilities | `us_ports` ([useUsPorts.js](src/hooks/useUsPorts.js)) | `type in ('P','I')`, **live** — minus `US_PORT_EXCLUSIONS` |
-| International load ports | `world_ports` ([useLoadingPorts.js](src/hooks/useLoadingPorts.js)) | **fixed** list `INTL_PORTS`; coordinates read live |
+| places | kind | source | selection | band |
+|---|---|---|---|---|
+| US ports & inland facilities | `us_port` / `rail_yard` | `us_ports` ([useUsPorts.js](src/hooks/useUsPorts.js)) | `type in ('P','I')`, **live** — minus `US_PORT_EXCLUSIONS` | z3–4 |
+| International load ports | `intl_port` | `world_ports` ([useLoadingPorts.js](src/hooks/useLoadingPorts.js)) | **fixed** list `INTL_PORTS` | z3–4 |
+| Transshipment ports | `ts_port` | `world_ports` (same hook, one query) | **fixed** list `TRANSSHIPMENT_PORTS` | z6–7 |
+
+**The third tier is background, and two mechanisms keep it there** — neither a special case in the
+render. It does not exist below **z6**, so the world and ocean-basin views are byte-for-byte what
+they were. And `symbol-sort-key` IS `minzoom`, so collision resolves in favour of the earlier band
+automatically: every existing tag sorts ≤ 4 and every `ts_port` ≥ 6, so a load port keeps its name
+and the transshipment port beside it drops to a bare dot. There is no priority field to maintain.
+It is also painted quieter — Google's tertiary grey, a smaller ring, ~1.5px smaller text.
+
+Note the label layer's `match` expressions **fall through to the US styling** (bold, dark). A new
+kind that forgets to name itself in all three — font, size, colour — gets the loudest treatment on
+the map, which is the opposite of what a background tier wants.
+
+**Transshipment ports have no route geometry.** `populate_port_matrix.py` does not cover them, so a
+sailing calling at one truncates its itinerary. Fine while they are only labels; if a vessel is ever
+drawn calling there, they need adding to that matrix (`--port`).
 
 **The two sides behave differently on purpose.** The US list is *live*: whatever operations add to
 `us_ports` appears on the map with no code change, minus the explicit `US_PORT_EXCLUSIONS` set in
