@@ -658,11 +658,12 @@ fields and are what the polyline is looked up by, so one contradicting its own e
 marker on a line its containers are not on.
 
 **Guarded by `npm run test:grouping`** ([tools/check-voyage-grouping.mjs](tools/check-voyage-grouping.mjs)),
-122 checks over the rules — each field varied one at a time, every blank fallback, the LA/Long Beach
+133 checks over the rules — each field varied one at a time, every blank fallback, the LA/Long Beach
 fold, spelling drift, the multi-drop suite (two calls from one departure, ordering by date rather
 than row order, the itinerary surviving a discharge, a truncated chain, the tray's per-lane lines),
 the multi-load suite (two load ports on one hull, the 21-day window either side of the line, gaps
-chaining, and a ship mid-load with one box aboard and one still on the quay),
+chaining, and a ship mid-load with one box aboard and one still on the quay), the two-origins-and-
+two-destinations case where loads and discharges interleave across four calls no two boxes share,
 `positionOnItinerary` putting the hull on the right leg, the origin cards (including a port that is
 both an origin and a destination), and the live fixture. Running the
 app demonstrates the vessel match succeeding and almost nothing else — not one of the ways either

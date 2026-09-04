@@ -59,6 +59,8 @@ const routes = new Map([
   [normalizeKey('New York, NY - Los Angeles, CA'), [[-74, 40], [-118, 33]]],
   [normalizeKey('Nhava Sheva, India - Pipavav, India'), [[72.95, 18.95], [71.57, 20.92]]],
   [normalizeKey('Pipavav, India - Nhava Sheva, India'), [[71.57, 20.92], [72.95, 18.95]]],
+  [normalizeKey('Nhava Sheva, India - Oakland, CA'), [[72.95, 18.95], [-122.3, 37.8]]],
+  [normalizeKey('Oakland, CA - Los Angeles, CA'), [[-122.3, 37.8], [-118, 33]]],
   [normalizeKey('Pipavav, India - Los Angeles, CA'), [[71.57, 20.92], [-118, 33]]],
   [normalizeKey('Nhava Sheva, India - Los Angeles, CA'), [[72.95, 18.95], [-118, 33]]],
 ])
@@ -350,6 +352,54 @@ const PIPAVAV = {
   check('...but its itinerary still calls at Pipavav', built.vessels[0]?.calls.length, 3)
   check('...and the waiting box is on an origin card', built.ports[0]?.kind, 'origin')
   check("...at ITS port, not the sailing's first", built.ports[0]?.name, 'Pipavav, India')
+}
+
+// ── BOTH ENDS AT ONCE: two boxes, two origins, two destinations ─────────────────
+//
+// The case multi-load and multi-drop only cover separately. One box Pipavav -> Oakland, another
+// Nhava Sheva -> Los Angeles, on one hull: it picks each up as its ETD comes due and sets each down
+// as its port date comes due, so the chain interleaves four calls that no two containers share.
+//
+//     Pipavav (load 1) -> Nhava Sheva (load 2) -> Oakland (drop 1) -> Los Angeles (drop 2)
+//
+// WHAT MAKES THIS WORK IS THAT LOADS ARE ORDERED AS A BLOCK BEFORE DISCHARGES, each half by date,
+// rather than everything merged into one date sort. On an inbound feed that holds by construction:
+// every port of loading is one of the thirteen international ones and every discharge is US or
+// Canadian, so no load can fall after a discharge. A trade where a ship discharged and then loaded
+// again further along its route would need that rule revisited — it is an assumption about the
+// lane, not a law.
+console.log('\ntwo origins and two destinations on one hull\n')
+{
+  const A = { vessel: 'INTERLEAVE', appointment_date: '', arrival_notice: 'no', last_freeday: '', items: [] }
+  const rows = [
+    { ...A, shipment: 'BOX-1', port_of_loading: 'Pipavav, India', port_of_discharge: 'Oakland, CA',
+      Lastcy: 'Oakland, CA', route: 'Pipavav, India - Oakland, CA',
+      actual_shipping: '2026-06-01', expected_portdate: '2099-07-04', actual_portdate: '' },
+    { ...A, shipment: 'BOX-2', port_of_loading: 'Nhava Sheva, India', port_of_discharge: 'Los Angeles, CA',
+      Lastcy: 'Los Angeles, CA', route: 'Nhava Sheva, India - Los Angeles, CA',
+      actual_shipping: '2026-06-08', expected_portdate: '2099-07-11', actual_portdate: '' },
+  ]
+  const v = holders(rows)[0]
+  check('two origins and two destinations -> ONE hull', holders(rows).length, 1)
+  check('...four calls', v.calls.length, 4)
+  check('...load, load, discharge, discharge', v.calls.map((c) => c.kind).join(','),
+    'load,load,discharge,discharge')
+  check('...in sailing order', v.subtitle,
+    'Pipavav, India → Nhava Sheva, India → Oakland, CA → Los Angeles, CA')
+  check('...over three legs', v.legs.length, 3)
+  check('...including the US coastal hop', `${v.legs[2].from} -> ${v.legs[2].to}`,
+    'Oakland, CA -> Los Angeles, CA')
+  // Neither box shares a lane with the other, so the tray must name two.
+  check('...and the tray names both lanes',
+    v.manifest.map((m) => `${m.lane} (${m.count})`).join(' | '),
+    'Pipavav, India - Oakland, CA (1) | Nhava Sheva, India - Los Angeles, CA (1)')
+
+  // Dropping the Oakland box must not shorten the chain: the itinerary is a fact about the ship.
+  const dropped = holders([{ ...rows[0], actual_portdate: '2026-06-30' }, rows[1]])[0]
+  check('after Oakland, one box aboard', dropped.containers.length, 1)
+  check('...only its lane in the tray', dropped.manifest.map((m) => m.lane).join(''),
+    'Nhava Sheva, India - Los Angeles, CA')
+  check('...and the chain is still four calls', dropped.calls.length, 4)
 }
 
 // ── WHERE THE HULL ACTUALLY GOES ───────────────────────────────────────────────────────
