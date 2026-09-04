@@ -132,14 +132,33 @@ alone, so the moment variant rows land, two rows collide on one key and the last
 (`row.route_geom ?? row.geojson?.geometry`) and survives either. If `route_geom` is confirmed to
 arrive as GeoJSON, drop `geojson` — it duplicates the full geometry across ~180 rows.
 
-**Access:** `sea_routes` has RLS enabled. Its original grant/policy were `authenticated` +
-`my_org_type() = 'internal'`, which this app cannot satisfy — it uses the anon key with no sign-in.
-Reading it needs **both** a grant and a policy for `anon`:
+**Access:** every reference table has RLS enabled and needs **both a grant and a policy** — a grant
+alone returns zero rows, silently.
+
+**A POLICY IS SCOPED TO A ROLE, AND THIS APP HAS USED TWO.** It read everything as `anon` until it
+gained a login for `inbound_shipments`; after that it reads as `authenticated`, and *a policy
+granted `to anon` does not apply to an authenticated caller*. `us_ports` had only an anon policy, so
+signing in made **every US port and inland yard disappear from the map** — while the international
+ones stayed, because `world_ports` already had an `..._internal_read` policy from RatesApp. It read
+as a client bug and was a role change.
+
+So each of the five needs a pair, and the audit worth running after any auth change is
+"does every table this app reads have a policy for the role it now reads as":
+
+| table | anon | authenticated |
+|---|---|---|
+| `sea_routes`, `world_ports`, `rail_routes`, `us_ports`, `drayage_routes` | `..._anon_read` | `..._internal_read` |
+| `inbound_shipments` | **none, deliberately** | `my_org_type() = 'internal'` |
 
 ```sql
-grant select on public.sea_routes to anon;
-create policy sea_routes_anon_read on public.sea_routes for select to anon using (true);
+grant select on public.sea_routes to anon, authenticated;
+create policy sea_routes_anon_read     on public.sea_routes for select to anon          using (true);
+create policy sea_routes_internal_read on public.sea_routes for select to authenticated using (my_org_type() = 'internal');
 ```
+
+**Grant `select` and nothing else.** `us_ports` and `drayage_routes` were granted DELETE, INSERT,
+TRUNCATE and UPDATE to `anon` — with RLS the only thing between the bundled anon key and a DELETE,
+and **TRUNCATE is not governed by RLS at all**. Both are `select` now.
 
 That repo's migration history is drifted — **`supabase db push` must not be run on it**; apply SQL
 in the editor and add a migration file afterwards as a record.
