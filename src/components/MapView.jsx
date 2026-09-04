@@ -26,10 +26,6 @@ const INITIAL_CENTER = [0, 20]
 const INITIAL_ZOOM = 1.5
 // OpenMapTiles is z0-14 and overzooms cleanly above that; 17 is enough to see individual
 // buildings and yard entrances for drayage work without pushing the tiles past usefulness.
-//
-// `STANDOFF_NEAR_ZOOM` in vesselMath is this number, and the two must move together: it is the far
-// end of the vessel standoff's ramp because it is the far end of the map. Raise this and the
-// standoff stops shrinking while km-per-pixel keeps halving, so hulls drift back off their ports.
 const MAX_ZOOM = 17
 
 // The vessel's size curve, in one place because the count badge rides it too. If the hull and the

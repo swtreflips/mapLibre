@@ -288,22 +288,20 @@ function progressByTimeLeft(fallback, leg, today) {
 const ANCHORAGE_KM = 150
 
 /**
- * The zoom the standoff is CALIBRATED at, and the zoom it has decayed to by.
+ * The two zooms that shape the standoff: where it starts closing, and where it stops.
  *
  * ANCHORAGE_KM is the distance at STANDOFF_CAL_ZOOM and nowhere else. Below it the distance holds —
  * zoomed out, the whole leg is a few hundred pixels and there is no room to give anything back.
  * Above it the ship closes on its port.
  *
- * STANDOFF_NEAR_ZOOM IS MapView's `MAX_ZOOM`, and the two must move together. It is the far end of
- * the ramp because it is the far end of the map: OpenMapTiles stops at z14 and overzooms to 17,
- * which is where you can see a yard entrance. The clamp above it is unreachable today, and is there
- * so that raising the ceiling degrades into "holds at 15 m" rather than into a divide-by-nothing —
- * but note it degrades: past this zoom the km stops shrinking while km-per-pixel keeps halving, so
- * the pixel gap starts growing again. Raise this constant with the ceiling, do not rely on the clamp.
+ * STANDOFF_FLOOR_ZOOM IS HOW CLOSE IS CLOSE ENOUGH, and it is a judgement made by looking: at z10.11
+ * the hull sits 4.12 km off, which is 70 px at lat 34, and that is the tightest the pair reads
+ * without the hull starting to sit under the card again. It is NOT a map ceiling — closing further
+ * was tried (the ramp used to run to 15 m at z17, 30 px) and 30 px is too near.
  */
 const STANDOFF_CAL_ZOOM = 5.7
-const STANDOFF_NEAR_ZOOM = 17
-const STANDOFF_NEAR_KM = 0.015
+const STANDOFF_FLOOR_ZOOM = 10.11
+const STANDOFF_FLOOR_KM = 4.12
 
 /**
  * How far off its port a hull stands at this zoom, in km.
@@ -314,35 +312,42 @@ const STANDOFF_NEAR_KM = 0.015
  * detached from its port but several screens off the side of it. The collision it dodges is at the
  * BERTH, and by the time you are looking at a berth the ship should be next to it.
  *
- * GEOMETRIC, NOT LINEAR, between the two ends. The distance spans four orders of magnitude, so a
- * straight line between 150 km and 15 m is a line that is essentially zero everywhere except the
- * first zoom level. Interpolating the EXPONENT instead makes the ratio constant per zoom level,
- * which is the same way km-per-pixel itself moves — so the pixel gap closes smoothly rather than
- * collapsing at one end:
+ * GEOMETRIC, NOT LINEAR, while it closes. The distance falls by a factor of 36 over four and a half
+ * zoom levels, so a straight line between 150 km and 4 km is a line that is essentially 4 km
+ * everywhere past the first level. Interpolating the EXPONENT instead makes the ratio constant per
+ * zoom level, which is the same way km-per-pixel itself moves — so the pixel gap closes smoothly
+ * rather than collapsing at one end.
+ *
+ * THEN IT STOPS CLOSING, AND HOLDS ITS PIXEL GAP. Past the floor the distance halves with every
+ * zoom level, which is exactly the rate km-per-pixel halves at, so the ship stays the same distance
+ * from the card ON SCREEN however far in you go:
  *
  *     zoom      km        px (lat 34)
- *      5.7     150         120          <- calibrated here; unchanged from a flat 150 km
+ *      5.7     150         120          <- calibrated here; the anchorage read
  *      8        23           91
  *     10         4.5         71
- *     12         0.88        56
- *     14         0.17        44
- *     17         0.015       30
+ *     10.11      4.12        70         <- the floor: as close as the pair reads cleanly
+ *     12         1.11        70
+ *     14         0.28        70
+ *     17         0.035       70
  *
  * IT NEVER REACHES ZERO, which is the one hard constraint: at 0 the hull is back on the port card's
- * own coordinate and takes its clicks again. 15 m at z17 is a hull's length off the berth — visibly
- * beside it, never on it.
+ * own coordinate and takes its clicks again. Halving is asymptotic, so this holds at any zoom a map
+ * can reach — which also means the curve no longer cares where `MAX_ZOOM` sits. Raising the ceiling
+ * is now safe; the earlier ramp had to be re-tuned with it.
  *
  * ZOOM-DEPENDENT BUT NOT LATITUDE-DEPENDENT, deliberately. Working in km keeps this a pure function
  * of zoom that the tests can pin, and keeps `positionOnItinerary` free of the projection. The px
  * column above is therefore exact at lat 34 and drifts with the cosine — a Rotterdam hull stands
- * off the same 150 km and rather more pixels. Pixel-exactness would mean latitude per leg END, and
- * that is a knob this does not need to turn.
+ * off the same km and rather more pixels. Pixel-exactness would mean latitude per leg END, and that
+ * is a knob this does not need to turn.
  */
 export function standoffKmAt(zoom) {
   if (!(zoom > STANDOFF_CAL_ZOOM)) return ANCHORAGE_KM // also catches undefined / NaN
-  if (zoom >= STANDOFF_NEAR_ZOOM) return STANDOFF_NEAR_KM
-  const t = (zoom - STANDOFF_CAL_ZOOM) / (STANDOFF_NEAR_ZOOM - STANDOFF_CAL_ZOOM)
-  return ANCHORAGE_KM * (STANDOFF_NEAR_KM / ANCHORAGE_KM) ** t
+  // Past the floor, halve with the zoom level to hold the gap constant in pixels.
+  if (zoom >= STANDOFF_FLOOR_ZOOM) return STANDOFF_FLOOR_KM * 2 ** (STANDOFF_FLOOR_ZOOM - zoom)
+  const t = (zoom - STANDOFF_CAL_ZOOM) / (STANDOFF_FLOOR_ZOOM - STANDOFF_CAL_ZOOM)
+  return ANCHORAGE_KM * (STANDOFF_FLOOR_KM / ANCHORAGE_KM) ** t
 }
 
 /**

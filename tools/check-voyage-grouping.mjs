@@ -771,41 +771,55 @@ console.log('\nthe standoff closes as you zoom in\n')
 {
   const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); d.setHours(0,0,0,0); return d }
 
+  const kmPerPx = (z) => 64.9 / 2 ** z // lat 34, the calibration latitude
+  const px = (z) => standoffKmAt(z) / kmPerPx(z)
+
   check('calibrated at z5.7', Math.round(standoffKmAt(5.7)), 150)
   // Below the calibration zoom it HOLDS. Zoomed out the whole leg is a few hundred pixels and there
   // is nothing to give back; this is also what keeps every existing assertion above true.
   check('...and holds below it', standoffKmAt(3), standoffKmAt(5.7))
   check('...including at the world view', standoffKmAt(1.5), standoffKmAt(5.7))
 
+  // THE FLOOR, which is a judgement made by looking rather than derived: 70 px is as close as the
+  // hull and the card read as two things.
+  check('closes to its floor by z10.11', Number(standoffKmAt(10.11).toFixed(2)), 4.12)
+
+  // ...AND THEN HOLDS THAT GAP IN PIXELS, which is the whole point of the floor. The km keeps
+  // halving because km-per-pixel does, so the ship stays 70 px off the card however far in you go.
+  // In km these three are 4.12, 0.28 and 0.035 — a factor of 118 apart, and the same distance
+  // on screen.
+  const flat = [10.11, 14, 17, 22].map((z) => Math.round(px(z)))
+  check('...and then holds it, in pixels', new Set(flat).size, 1)
+  check('...at 70 px', flat[0], 70)
+
   // NEVER ZERO, the one hard constraint: at zero the hull is on the port card's own coordinate and
-  // takes its clicks back.
-  check('never reaches zero, even past the top stop', standoffKmAt(22) > 0, true)
-  check('...and is clamped there rather than running away', standoffKmAt(22), standoffKmAt(17))
+  // takes its clicks back. Halving is asymptotic, so this needs no clamp and no ceiling — which is
+  // why the curve no longer has to be re-tuned when MAX_ZOOM moves.
+  check('never reaches zero, at any zoom a map can reach', standoffKmAt(22) > 0, true)
 
-  // Monotonic, sampled across the whole band.
+  // Monotonic across the whole range, including over the join at the floor.
   let monotonic = true
-  for (let z = 5.7; z <= 17; z += 0.1) if (standoffKmAt(z + 0.1) > standoffKmAt(z)) monotonic = false
-  check('shrinks monotonically from z5.7 to z17', monotonic, true)
+  for (let z = 5.7; z <= 22; z += 0.1) if (standoffKmAt(z + 0.1) > standoffKmAt(z)) monotonic = false
+  check('shrinks monotonically throughout', monotonic, true)
+  // Continuous over that join: approached from below it must arrive at the floor, not step to it.
+  check('...and is continuous across the floor',
+    Math.abs(standoffKmAt(10.11 - 1e-9) - standoffKmAt(10.11)) < 1e-6, true)
 
-  // GEOMETRIC, NOT LINEAR. A straight line between 150 km and 15 m is essentially zero everywhere
-  // past the first zoom level; interpolating the exponent keeps the ratio constant per level, which
-  // is how km-per-pixel itself moves. Asserted as the PIXEL gap staying the same order of magnitude
-  // across eleven zoom levels — a linear ramp would collapse it to nothing by z7.
-  const kmPerPx = (z) => 64.9 / 2 ** z // lat 34, the calibration latitude
-  const px = (z) => standoffKmAt(z) / kmPerPx(z)
-  check('the pixel gap closes rather than collapsing', px(17) > px(5.7) / 6, true,
-    `${Math.round(px(5.7))} px at z5.7 vs ${Math.round(px(17))} px at z17`)
-  check('...and it does close', px(17) < px(5.7), true)
+  // GEOMETRIC, NOT LINEAR, on the closing half. A straight line from 150 km to 4.12 km is
+  // essentially 4.12 km everywhere past the first zoom level; interpolating the exponent keeps the
+  // ratio constant per level. Asserted as the gap closing GRADUALLY — a linear ramp would already
+  // be at the floor by z7.
+  check('the pixel gap closes gradually, not at once', px(7) > px(10.11) * 1.3, true,
+    `${Math.round(px(7))} px at z7 vs ${Math.round(px(10.11))} px at the floor`)
+  check('...and it does close', px(10.11) < px(5.7), true)
 
   // The drawn consequence, which is what all of the above is for: the same overdue ship on the same
-  // leg is nearer its port at z17 than at z5.7, and on the port at neither.
+  // leg is nearer its port zoomed in, and on the port at neither zoom.
   const leg = [{ from: 'A', to: 'Z', coords: [[0, 0], [40, 0]], start: day(-30), end: day(-3) }]
-  const far = positionOnItinerary(leg, day(0), standoffKmAt(5.7))
-  const near = positionOnItinerary(leg, day(0), standoffKmAt(17))
-  const off = (p) => haversine(p.pos, [40, 0])
-  check('the same ship is nearer its port zoomed in', off(near) < off(far), true,
-    `${off(far).toFixed(0)} km at z5.7 vs ${off(near).toFixed(3)} km at z17`)
-  check('...but still not on it', off(near) > 0, true)
+  const off = (z) => haversine(positionOnItinerary(leg, day(0), standoffKmAt(z)).pos, [40, 0])
+  check('the same ship is nearer its port zoomed in', off(17) < off(5.7), true,
+    `${off(5.7).toFixed(0)} km at z5.7 vs ${off(17).toFixed(3)} km at z17`)
+  check('...but still not on it', off(17) > 0, true)
 }
 
 // ── vesselSplits: the diagnostic that replaced etaDisagreements ─────────────────────────

@@ -322,28 +322,35 @@ several screens off the side of the port it is waiting for. The collision being 
 
 **So `ANCHORAGE_KM` is the distance at one zoom, and `standoffKmAt(zoom)` is the curve.** It holds
 flat at 150 km up to `STANDOFF_CAL_ZOOM` (5.7) — zoomed out, a whole leg is a few hundred pixels and
-there is nothing to give back — then decays to 15 m by z17:
+there is nothing to give back — closes to a **floor of 4.12 km at z10.11**, and from there holds
+that gap *in pixels*:
 
 | zoom | km | px (lat 34) |
 |---|---|---|
 | ≤ 5.7 | 150 | 120 |
 | 8 | 23 | 91 |
 | 10 | 4.5 | 71 |
-| 12 | 0.88 | 56 |
-| 14 | 0.17 | 44 |
-| 17 | 0.015 | 30 |
+| **10.11** | **4.12** | **70** ← the floor |
+| 12 | 1.11 | 70 |
+| 14 | 0.28 | 70 |
+| 17 | 0.035 | 70 |
 
-**Geometric, not linear**, between the two ends. The distance spans four orders of magnitude, so a
-straight line between 150 km and 15 m is a line that is essentially zero everywhere past the first
-zoom level. Interpolating the *exponent* keeps the ratio constant per zoom level — the same way
-km-per-pixel itself moves — so the pixel gap closes smoothly instead of collapsing.
+**Geometric, not linear**, while it closes. Interpolating the *exponent* keeps the ratio constant per
+zoom level — the same way km-per-pixel itself moves — so the pixel gap closes smoothly instead of
+collapsing to the floor within one level, which is what a straight line from 150 km to 4 km does.
 
-**It never reaches zero**, which is the one hard constraint: at zero the hull is back on the port
-card's own coordinate and takes its clicks again. 15 m at z17 is a hull's length off the berth.
+**The floor is how close is close enough, and it was set by looking**, not derived. 70 px is the
+tightest the hull and the card read as two things. Closing further was tried — the ramp originally
+ran to 15 m at z17, which is 30 px — and 30 px is too near.
 
-**`STANDOFF_NEAR_ZOOM` is `MAX_ZOOM`** and the two must move together — the ramp ends where the map
-does. Above it the km clamps while km-per-pixel keeps halving, so hulls would drift back offshore;
-raise the constant with the ceiling rather than relying on the clamp.
+**Past the floor the distance halves with every zoom level**, exactly the rate km-per-pixel halves
+at, so the ship holds 70 px off the card however far in you go. In km those rows are a factor of 118
+apart and identical on screen.
+
+**It never reaches zero**, the one hard constraint: at zero the hull is back on the port card's own
+coordinate and takes its clicks again. Halving is asymptotic, so this holds at any zoom a map can
+reach — which also means **the curve no longer cares where `MAX_ZOOM` sits**. Raising the ceiling is
+safe; the earlier ramp had to be re-tuned with it.
 
 **Zoom-dependent but not latitude-dependent**, deliberately: working in km keeps `standoffKmAt` a
 pure function of zoom that the tests can pin, and keeps `positionOnItinerary` free of the
