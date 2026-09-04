@@ -583,8 +583,9 @@ rules, each of which is a way of getting it wrong:
 
 **The port-to-port legs are real geometry, and they exist because something generates them ahead of
 time.** No shipment is ever booked "Nhava Sheva to Pipavav", so nothing in the feed would ever ask
-for that lane — `polylines/populate_port_matrix.py` builds the full **2,070-pair matrix** over the
-46 ports the map shows (33 `us_ports` type P + the 13 in `map_loading_ports`). `New York, NY -
+for that lane — `polylines/populate_port_matrix.py` builds the full **2,256-pair matrix** over the
+48 ports the map shows (33 `us_ports` type P, the 13 in `map_loading_ports`, and Cai Mep and Vung
+Tau passed with `--port` because they are transshipment ports the load-side view cannot see). `New York, NY -
 Norfolk, VA` is 568.9 km and `Nhava Sheva, India - Pipavav, India` is 460.4 km, not guesses.
 
 **A missing leg truncates the chain; it does not delete the ship.** Keep the calls that resolve, hold

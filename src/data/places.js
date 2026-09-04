@@ -73,13 +73,25 @@ const INTL_MINZOOM = 3
 // ── The curated international list ───────────────────────────────────────────────────
 //
 // These are `world_ports.canonical_name` values, and they must match EXACTLY — the lookup is an
-// `in` filter, so a near-miss string silently yields no port rather than an error. Derived once
-// from the distinct `schedules.port_of_loading` values; re-derive with the `map_loading_ports`
-// view (CLAUDE.md §15) when the network changes, then paste the result here.
+// `in` filter, so a near-miss string silently yields no port rather than an error. Seeded from the
+// distinct `schedules.port_of_loading` values; re-derive with the `map_loading_ports` view
+// (CLAUDE.md §15) when the network changes, then paste the result here.
+//
+// IT IS NO LONGER PURELY LOAD PORTS. Cai Mep and Vung Tau are TRANSSHIPMENT ports — 554 and 114
+// schedules name them in `ts_ports`, and NEITHER appears as a `port_of_loading`, so
+// `map_loading_ports` does not and will never list them. They are on the map because they are
+// places boxes actually pass through, which is what a reader wants to see; the view stays what it
+// always was, a tool for re-deriving the load side.
+//
+// THAT SPLIT NEEDS WATCHING. `polylines/populate_port_matrix.py` builds the route matrix from the
+// VIEW, so a port added here does not get geometry by being added here. Adding one means running
+// that script with `--port "<name>"` as well, or the port draws a tag with no lane to or from it
+// and any sailing calling there truncates. See the script's docstring.
 //
 // Coordinates deliberately are NOT stored here — they come from world_ports at runtime, so a
 // corrected coordinate takes effect without a redeploy.
 export const INTL_PORTS = [
+  'Cai Mep, Vietnam',
   'Cartagena, Colombia',
   'Hai Phong, Vietnam',
   'Ho Chi Minh, Vietnam',
@@ -93,6 +105,7 @@ export const INTL_PORTS = [
   'Puerto Quetzal, Guatemala',
   'Qingdao, China',
   'Semarang, Indonesia',
+  'Vung Tau, Vietnam',
 ]
 
 // ── US exclusions ────────────────────────────────────────────────────────────────────
